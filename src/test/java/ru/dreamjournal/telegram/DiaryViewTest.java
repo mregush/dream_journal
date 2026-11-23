@@ -126,7 +126,8 @@ class DiaryViewTest {
         }
         var period = period(YearMonth.of(2026, 10), entries, null);
         var stats = view.render(new SurveyResult.Statistics(MonthlyStatistics.calculate(period)));
-        assertThat(stats.text()).contains("Среднее качество сна: <b>8,0</b>", "Среднее ощущение отдыха: <b>7,0</b>",
+        assertThat(stats.text()).contains("Среднее качество сна: <b>8.0</b>", "Среднее ощущение отдыха: <b>7.0</b>",
+                "Среднее число пробуждений: <b>0.0</b>",
                 "12+ч — <b>1</b>", "Прежние записи с точной длительностью", "7ч 30 мин — <b>1</b>")
                 .doesNotContain("/10");
         var day = new DiaryDay(entries.getFirst().entryDate(), today, "Europe/Moscow", entries.getFirst(), null);

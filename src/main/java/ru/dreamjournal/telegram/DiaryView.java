@@ -163,7 +163,7 @@ public class DiaryView {
     }
 
     private String average(Double value) {
-        return value == null ? "—" : String.format(RU, "%.1f", value);
+        return value == null ? "—" : String.format(Locale.ROOT, "%.1f", value);
     }
 
     private InlineKeyboardButton button(String text, String data) {
