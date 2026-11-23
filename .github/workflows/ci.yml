@@ -1,0 +1,35 @@
+name: Verify application and deployment
+
+on: [push, pull_request, workflow_dispatch]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: verify-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: gradle
+      - name: Check shell syntax
+        run: |
+          for script in scripts/*.sh; do
+            bash -n "$script"
+          done
+      - name: Run application tests
+        run: ./gradlew --no-daemon test bootJar
+      - name: Build runtime image
+        run: docker build --tag dream-journal:local .
+      - name: Verify startup, update and data persistence
+        run: ./scripts/smoke-test.sh

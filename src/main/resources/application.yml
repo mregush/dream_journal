@@ -3,6 +3,7 @@ spring:
     name: dream-journal
   main:
     web-application-type: none
+    keep-alive: ${APP_KEEP_ALIVE:false}
   datasource:
     url: ${DB_URL:jdbc:postgresql://localhost:${DB_PORT:5432}/${DB_NAME:dream_journal}}
     username: ${DB_USERNAME:dream_journal}
@@ -12,6 +13,10 @@ spring:
 
 diary:
   default-time-zone: ${DIARY_DEFAULT_TIME_ZONE:Europe/Moscow}
+
+deployment:
+  readiness-enabled: ${DEPLOYMENT_READINESS_ENABLED:false}
+  readiness-file: ${DEPLOYMENT_READINESS_FILE:/tmp/dream-journal.ready}
 
 telegram:
   bot:

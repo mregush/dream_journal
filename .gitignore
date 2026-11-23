@@ -46,5 +46,7 @@ bin/
 .env
 .env.*
 !.env.example
+!.env.prod.example
 application-local.yml
 *.log
+backups/
