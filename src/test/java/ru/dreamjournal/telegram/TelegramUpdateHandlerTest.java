@@ -31,13 +31,15 @@ class TelegramUpdateHandlerTest {
     private TelegramClient client;
     @Mock
     private UserRegistrationService registrationService;
+    @Mock
+    private SurveyTelegramController surveyController;
 
     private TelegramUpdateHandler handler;
 
     @BeforeEach
     void setUp() {
         handler = new TelegramUpdateHandler(client, registrationService,
-                new TelegramBotProperties(true, "dream_journal_agent", "test-token"));
+                new TelegramBotProperties(true, "dream_journal_agent", "test-token"), surveyController);
     }
 
     @Test
@@ -46,6 +48,7 @@ class TelegramUpdateHandlerTest {
 
         verify(registrationService).register(new TelegramProfile(42L, 42L, "anya", "Аня", null));
         assertThat(sentMessage().getText()).contains("дневник сна");
+        verifyNoInteractions(surveyController);
     }
 
     @Test
@@ -68,7 +71,7 @@ class TelegramUpdateHandlerTest {
         handler.handle(message("/help"));
 
         assertThat(sentMessage().getText()).contains("/start", "/help");
-        verifyNoInteractions(registrationService);
+        verifyNoInteractions(registrationService, surveyController);
     }
 
     @Test
@@ -125,6 +128,47 @@ class TelegramUpdateHandlerTest {
         verify(registrationService).register(any(TelegramProfile.class));
     }
 
+    @Test
+    void diaryRegistersTheUserAndOpensTheQuestionnaire() {
+        handler.handle(message("/diary"));
+
+        verify(registrationService).register(any(TelegramProfile.class));
+        verify(surveyController).open(42, 42);
+        verifyNoInteractions(client);
+    }
+
+    @Test
+    void freeTextIncludingMentionsIsPassedToTheQuestionnaire() {
+        handler.handle(message("@friend и я читали перед сном"));
+
+        verify(surveyController).text(42, 42, "@friend и я читали перед сном");
+        verifyNoInteractions(client, registrationService);
+    }
+
+    @Test
+    void cancelPausesTheQuestionnaire() {
+        handler.handle(message("/cancel"));
+
+        verify(surveyController).pause(42, 42);
+        verifyNoInteractions(client, registrationService);
+    }
+
+    @Test
+    void privateCallbackIsRoutedUsingTheSenderIdentity() {
+        handler.handle(callback(42, "private"));
+
+        verify(surveyController).callback(42, 42, 10, "query-1", "payload");
+        verifyNoInteractions(client, registrationService);
+    }
+
+    @Test
+    void callbackFromAnotherSenderOrGroupIsIgnored() {
+        handler.handle(callback(84, "private"));
+        handler.handle(callback(42, "group"));
+
+        verifyNoInteractions(client, registrationService, surveyController);
+    }
+
     private SendMessage sentMessage() throws TelegramApiException {
         var captor = ArgumentCaptor.forClass(SendMessage.class);
         verify(client).execute(captor.capture());
@@ -140,6 +184,19 @@ class TelegramUpdateHandlerTest {
                         "from", Map.of("id", 42L, "is_bot", false, "first_name", "Аня", "username", "anya"),
                         "chat", Map.of("id", 42L, "type", "private"),
                         "text", text
+                )
+        ), Update.class);
+    }
+
+    private Update callback(long senderId, String chatType) {
+        return new ObjectMapper().convertValue(Map.of(
+                "update_id", 2,
+                "callback_query", Map.of(
+                        "id", "query-1",
+                        "from", Map.of("id", senderId, "is_bot", false, "first_name", "Аня"),
+                        "message", Map.of("message_id", 10, "date", 1_795_420_800,
+                                "chat", Map.of("id", 42L, "type", chatType)),
+                        "data", "payload"
                 )
         ), Update.class);
     }

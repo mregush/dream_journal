@@ -1,0 +1,113 @@
+package ru.dreamjournal.telegram;
+
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.dao.DataAccessException;
+import org.telegram.telegrambots.meta.api.methods.AnswerCallbackQuery;
+import org.telegram.telegrambots.meta.api.methods.send.SendMessage;
+import org.telegram.telegrambots.meta.api.methods.updatingmessages.EditMessageReplyMarkup;
+import org.telegram.telegrambots.meta.api.methods.updatingmessages.EditMessageText;
+import org.telegram.telegrambots.meta.api.objects.replykeyboard.InlineKeyboardMarkup;
+import org.telegram.telegrambots.meta.exceptions.TelegramApiException;
+import org.telegram.telegrambots.meta.generics.TelegramClient;
+import ru.dreamjournal.diary.SurveyCallback;
+import ru.dreamjournal.diary.SurveyResult;
+import ru.dreamjournal.diary.SurveyService;
+import ru.dreamjournal.diary.SurveyStep;
+
+import java.util.List;
+import java.util.function.Supplier;
+
+public class SurveyTelegramController {
+
+    private static final Logger log = LoggerFactory.getLogger(SurveyTelegramController.class);
+
+    private final TelegramClient client;
+    private final SurveyService service;
+    private final SurveyView view;
+
+    public SurveyTelegramController(TelegramClient client, SurveyService service, SurveyView view) {
+        this.client = client;
+        this.service = service;
+        this.view = view;
+    }
+
+    public void open(long userId, long chatId) {
+        send(chatId, perform(() -> service.open(userId)));
+    }
+
+    public void text(long userId, long chatId, String text) {
+        send(chatId, perform(() -> service.answerText(userId, text)));
+    }
+
+    public void pause(long userId, long chatId) {
+        send(chatId, perform(() -> service.pause(userId)));
+    }
+
+    public void callback(long userId, long chatId, int messageId, String queryId, String data) {
+        SurveyResult result = perform(() -> service.action(userId, data));
+        acknowledge(queryId, result instanceof SurveyResult.Notice notice ? notice.text() : null);
+        if (result instanceof SurveyResult.Notice) {
+            return;
+        }
+        var callback = SurveyCallback.parse(data);
+        boolean updateInPlace = result instanceof SurveyResult.Draft draft && callback.isPresent()
+                && (draft.session().revision() == callback.get().revision()
+                || (draft.session().step() == SurveyStep.BEDTIME_STATES && callback.get().action().startsWith("state")));
+        if (updateInPlace && edit(chatId, messageId, result)) {
+            return;
+        }
+        if (send(chatId, result)) {
+            clearKeyboard(chatId, messageId);
+        }
+    }
+
+    private SurveyResult perform(Supplier<SurveyResult> operation) {
+        try {
+            return operation.get();
+        } catch (DataAccessException exception) {
+            log.error("Diary operation failed ({})", exception.getClass().getSimpleName());
+            return new SurveyResult.Notice("Не удалось сохранить изменения. Попробуй продолжить через /diary.");
+        }
+    }
+
+    private boolean send(long chatId, SurveyResult result) {
+        SurveyView.Screen screen = view.render(result);
+        try {
+            client.execute(SendMessage.builder().chatId(chatId).text(screen.text()).replyMarkup(screen.keyboard()).build());
+            return true;
+        } catch (TelegramApiException exception) {
+            log.warn("Diary message delivery failed ({})", exception.getClass().getSimpleName());
+            return false;
+        }
+    }
+
+    private boolean edit(long chatId, int messageId, SurveyResult result) {
+        SurveyView.Screen screen = view.render(result);
+        try {
+            client.execute(EditMessageText.builder().chatId(chatId).messageId(messageId)
+                    .text(screen.text()).replyMarkup(screen.keyboard()).build());
+            return true;
+        } catch (TelegramApiException exception) {
+            log.warn("Diary message update failed ({})", exception.getClass().getSimpleName());
+            return false;
+        }
+    }
+
+    private void acknowledge(String queryId, String text) {
+        try {
+            client.execute(AnswerCallbackQuery.builder().callbackQueryId(queryId).text(text).build());
+        } catch (TelegramApiException exception) {
+            log.warn("Callback acknowledgement failed ({})", exception.getClass().getSimpleName());
+        }
+    }
+
+    private void clearKeyboard(long chatId, int messageId) {
+        try {
+            client.execute(EditMessageReplyMarkup.builder().chatId(chatId).messageId(messageId)
+                    .replyMarkup(InlineKeyboardMarkup.builder().keyboard(List.of()).build()).build());
+        } catch (TelegramApiException exception) {
+            log.warn("Previous keyboard removal failed ({})", exception.getClass().getSimpleName());
+        }
+    }
+}

@@ -18,7 +18,7 @@ public class TelegramUpdateHandler {
     private static final String WELCOME = """
             Привет! Я помогу вести дневник сна 🌙
 
-            Опрос, календарь и ежедневные напоминания появятся в следующих обновлениях.
+            /diary — сделать запись или продолжить черновик.
 
             /help — доступные команды.
             """;
@@ -26,23 +26,39 @@ public class TelegramUpdateHandler {
             Дневник сна 🌙
 
             /start — подключиться к дневнику
+            /diary — сделать запись или продолжить черновик
+            /cancel — отложить опрос, сохранив ответы
             /help — показать справку
 
-            Опрос, календарь и настройка напоминаний пока готовятся.
+            После семи вопросов можно проверить, исправить и сохранить запись.
+            Календарь и настройка напоминаний пока готовятся.
             """;
 
     private final TelegramClient client;
     private final UserRegistrationService registrationService;
     private final String botUsername;
+    private final SurveyTelegramController surveyController;
 
     public TelegramUpdateHandler(TelegramClient client, UserRegistrationService registrationService,
-                                 TelegramBotProperties properties) {
+                                 TelegramBotProperties properties, SurveyTelegramController surveyController) {
         this.client = client;
         this.registrationService = registrationService;
         this.botUsername = properties.username();
+        this.surveyController = surveyController;
     }
 
     public void handle(Update update) {
+        if (update.hasCallbackQuery()) {
+            var query = update.getCallbackQuery();
+            if (query.getFrom() != null && !query.getFrom().getIsBot()
+                    && query.getMessage() instanceof Message message && message.getChat() != null
+                    && "private".equals(message.getChat().getType())
+                    && query.getFrom().getId().equals(message.getChatId())) {
+                surveyController.callback(query.getFrom().getId(), message.getChatId(), message.getMessageId(),
+                        query.getId(), query.getData());
+            }
+            return;
+        }
         if (!update.hasMessage()) {
             return;
         }
@@ -54,6 +70,10 @@ public class TelegramUpdateHandler {
         }
 
         String command = message.getText().strip().split("\\s+", 2)[0];
+        if (!command.startsWith("/")) {
+            surveyController.text(message.getFrom().getId(), message.getChatId(), message.getText());
+            return;
+        }
         int mentionIndex = command.indexOf('@');
         if (mentionIndex >= 0) {
             if (!command.substring(mentionIndex + 1).equalsIgnoreCase(botUsername)) {
@@ -64,12 +84,24 @@ public class TelegramUpdateHandler {
 
         switch (command) {
             case "/start" -> start(message);
+            case "/diary" -> {
+                if (register(message)) {
+                    surveyController.open(message.getFrom().getId(), message.getChatId());
+                }
+            }
+            case "/cancel" -> surveyController.pause(message.getFrom().getId(), message.getChatId());
             case "/help" -> reply(message.getChatId(), HELP);
             default -> reply(message.getChatId(), "Доступные команды — /help. Начать знакомство — /start.");
         }
     }
 
     private void start(Message message) {
+        if (register(message)) {
+            reply(message.getChatId(), WELCOME);
+        }
+    }
+
+    private boolean register(Message message) {
         var from = message.getFrom();
         try {
             registrationService.register(new TelegramProfile(from.getId(), message.getChatId(),
@@ -77,9 +109,9 @@ public class TelegramUpdateHandler {
         } catch (DataAccessException exception) {
             log.error("User registration failed ({})", exception.getClass().getSimpleName());
             reply(message.getChatId(), "Не удалось сохранить профиль. Попробуй отправить /start ещё раз.");
-            return;
+            return false;
         }
-        reply(message.getChatId(), WELCOME);
+        return true;
     }
 
     private void reply(long chatId, String text) {

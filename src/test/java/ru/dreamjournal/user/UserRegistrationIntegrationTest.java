@@ -38,8 +38,8 @@ class UserRegistrationIntegrationTest {
 
     @Test
     void applicationStartsWithMigrationsAndWithoutConnectingToTelegram() {
-        assertThat(jdbcClient.sql("SELECT COUNT(*) FROM flyway_schema_history WHERE success = TRUE")
-                .query(Long.class).single()).isEqualTo(1);
+        assertThat(jdbcClient.sql("SELECT success FROM flyway_schema_history WHERE version = '1'")
+                .query(Boolean.class).single()).isTrue();
         assertThat(context.getBeansOfType(TelegramBotsLongPollingApplication.class)).isEmpty();
     }
 
