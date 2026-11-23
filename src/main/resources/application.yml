@@ -1,0 +1,22 @@
+spring:
+  application:
+    name: dream-journal
+  main:
+    web-application-type: none
+  datasource:
+    url: ${DB_URL:jdbc:postgresql://localhost:${DB_PORT:5432}/${DB_NAME:dream_journal}}
+    username: ${DB_USERNAME:dream_journal}
+    password: ${DB_PASSWORD:dream_journal_local}
+  flyway:
+    enabled: true
+
+telegram:
+  bot:
+    enabled: ${TELEGRAM_BOT_ENABLED:true}
+    username: ${TELEGRAM_BOT_USERNAME:dream_journal_agent}
+    token: ${TELEGRAM_BOT_TOKEN:9244866888:AAFtJvXrp2DWgBY7_xE_mtHb2Lwy-trqArk}
+
+# Bot API URLs contain the token. Do not enable HTTP wire logging.
+logging:
+  level:
+    org.telegram.telegrambots: OFF

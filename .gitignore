@@ -41,3 +41,10 @@ bin/
 
 ### Mac OS ###
 .DS_Store
+
+### Local configuration ###
+.env
+.env.*
+!.env.example
+application-local.yml
+*.log
