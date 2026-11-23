@@ -21,7 +21,7 @@ public class DiaryView {
 
     private static final Locale RU = Locale.forLanguageTag("ru-RU");
     private static final DateTimeFormatter MONTH = DateTimeFormatter.ofPattern("LLLL yyyy", RU);
-    private static final DateTimeFormatter DATE = DateTimeFormatter.ofPattern("dd.MM.yyyy");
+    private static final DateTimeFormatter DAY = DateTimeFormatter.ofPattern("d MMMM", RU);
 
     private final SurveyView surveyView;
 
@@ -56,12 +56,11 @@ public class DiaryView {
                     continue;
                 }
                 LocalDate date = period.month().atDay(day);
-                String label = date.equals(period.today()) ? "[" + day + "]" : Integer.toString(day);
-                if (period.hasEntry(date)) {
-                    label += "✅";
-                }
+                String label = Integer.toString(day);
                 if (period.hasDraft(date)) {
-                    label += "✏️";
+                    label += "*";
+                } else if (period.hasEntry(date)) {
+                    label += "✓";
                 }
                 row.add(button(label, "day:" + date));
             }
@@ -69,9 +68,11 @@ public class DiaryView {
         }
         rows.add(monthNavigation(period, "c"));
         rows.add(new InlineKeyboardRow(button("Статистика месяца", "t:" + period.month())));
-        return screen("📅 Ваш дневник\n\n" + monthName(period.month()) + " · " + period.timeZone()
-                + "\nСохранено записей: " + period.entries().size()
-                + "\n\n✅ запись · ✏️ черновик\nВыбери день, чтобы открыть или добавить запись.", rows);
+        String today = period.month().equals(YearMonth.from(period.today()))
+                ? "\nСегодня: " + TelegramHtml.bold(period.today().format(DAY)) : "";
+        return screen("📅 <b>Ваш дневник</b>\n\n" + TelegramHtml.bold(monthName(period.month())) + today
+                + "\n\nСохранено записей: " + TelegramHtml.bold(period.entries().size())
+                + "\n\n<i>✓ запись · * черновик / изменения</i>\nВыбери день, чтобы открыть или добавить запись.", rows);
     }
 
     private SurveyView.Screen day(DiaryDay day) {
@@ -80,13 +81,13 @@ public class DiaryView {
         if (day.entry() != null) {
             text = surveyView.entryText(day.entry());
             if (day.draft() != null) {
-                text += "\n\nЕсть незавершённые изменения. Сохранённая запись пока не изменена.";
+                text += "\n\n<i>Есть незавершённые изменения. Сохранённая запись пока не изменена.</i>";
                 rows.add(new InlineKeyboardRow(button("Продолжить изменения", "add:" + day.date())));
             } else {
                 rows.add(new InlineKeyboardRow(button("Изменить", "e:" + day.date() + ":edit")));
             }
         } else {
-            text = "🌙 Запись за " + day.date().format(DATE) + " · " + day.timeZone() + "\n\n";
+            text = SurveyView.header(day.date());
             if (day.isFuture()) {
                 text += "Этот день ещё не наступил. Заполнить дневник можно за сегодняшний или прошедший день.";
             } else if (day.draft() != null) {
@@ -106,32 +107,35 @@ public class DiaryView {
     private SurveyView.Screen statistics(MonthlyStatistics stats) {
         var period = stats.period();
         int count = period.entries().size();
-        StringBuilder text = new StringBuilder("📊 Статистика месяца\n\n")
-                .append(monthName(period.month())).append(" · ").append(period.timeZone())
-                .append("\n\nЗаполнено дней: ").append(count).append(" из ").append(stats.trackedDays())
-                .append("\nНезавершённых записей: ").append(stats.draftDays())
-                .append("\nДней без записи: ").append(stats.missingDays());
+        StringBuilder text = new StringBuilder("📊 <b>Статистика месяца</b>\n\n")
+                .append(TelegramHtml.bold(monthName(period.month())))
+                .append("\n\nЗаполнено дней: ").append(TelegramHtml.bold(count + " из " + stats.trackedDays()))
+                .append("\nНезавершённых записей: ").append(TelegramHtml.bold(stats.draftDays()))
+                .append("\nДней без записи: ").append(TelegramHtml.bold(stats.missingDays()));
         if (count == 0) {
             text.append("\n\nЗа этот месяц пока нет завершённых записей.");
         } else {
-            text.append("\n\nСреднее качество сна: ").append(average(stats.averageQuality())).append("/10")
-                    .append("\nСреднее ощущение отдыха: ").append(average(stats.averageRest())).append("/10")
-                    .append("\nСреднее число пробуждений: ").append(average(stats.averageAwakenings()))
-                    .append("\nНочей без пробуждений: ").append(stats.uninterruptedNights())
-                    .append("\n\nДлительность сна — ночей:");
-            stats.durationCounts().forEach((range, nights) -> text.append("\n").append(range.hours()).append(" ч — ").append(nights));
+            text.append("\n\nСреднее качество сна: ").append(TelegramHtml.bold(average(stats.averageQuality()) + "/10"))
+                    .append("\nСреднее ощущение отдыха: ").append(TelegramHtml.bold(average(stats.averageRest()) + "/10"))
+                    .append("\nСреднее число пробуждений: ").append(TelegramHtml.bold(average(stats.averageAwakenings())))
+                    .append("\nНочей без пробуждений: ").append(TelegramHtml.bold(stats.uninterruptedNights()))
+                    .append("\n\n<b>Длительность сна — ночей</b>");
+            stats.durationCounts().forEach((range, nights) -> text.append("\n").append(TelegramHtml.escape(range.hours()))
+                    .append(" ч — ").append(TelegramHtml.bold(nights)));
             if (!stats.legacyDurationCounts().isEmpty()) {
-                text.append("\n\nПрежние записи с точной длительностью — ночей:");
+                text.append("\n\n<b>Прежние записи с точной длительностью — ночей</b>");
                 stats.legacyDurationCounts().forEach((minutes, nights) -> text.append("\n")
-                        .append(SleepDuration.legacy(minutes).label()).append(" — ").append(nights));
+                        .append(TelegramHtml.escape(SleepDuration.legacy(minutes).label()))
+                        .append(" — ").append(TelegramHtml.bold(nights)));
             }
-            text.append("\n\nСостояние перед сном — ночей:");
+            text.append("\n\n<b>Состояние перед сном — ночей</b>");
             for (BedtimeState state : BedtimeState.values()) {
-                text.append("\n").append(state.label()).append(" — ").append(stats.stateCounts().getOrDefault(state, 0));
+                text.append("\n").append(TelegramHtml.escape(state.label())).append(" — ")
+                        .append(TelegramHtml.bold(stats.stateCounts().getOrDefault(state, 0)));
             }
-            text.append("\nМожно отметить несколько состояний за одну ночь.");
+            text.append("\n<i>Можно отметить несколько состояний за одну ночь.</i>");
         }
-        text.append("\n\nДни до регистрации и будущие даты не считаются пропусками.");
+        text.append("\n\n<i>Дни до регистрации и будущие даты не считаются пропусками.</i>");
         var rows = new ArrayList<InlineKeyboardRow>();
         rows.add(monthNavigation(period, "t"));
         rows.add(new InlineKeyboardRow(button("Календарь", "c:" + period.month())));

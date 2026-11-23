@@ -26,48 +26,49 @@ public class SurveyView {
         return switch (result) {
             case SurveyResult.Draft draft -> draft(draft);
             case SurveyResult.Saved saved -> new Screen(
-                    (saved.justSaved() ? "✅ Запись сохранена!\n\n" : "За этот день уже есть запись.\n\n")
+                    (saved.justSaved() ? "✅ Запись сохранена\n\n" : "За этот день уже есть запись.\n\n")
                             + entryText(saved.entry()),
                     InlineKeyboardMarkup.builder().keyboard(List.of(
                             new InlineKeyboardRow(button("Изменить", "e:" + saved.entry().entryDate() + ":edit")),
                             navigation(saved.entry().entryDate()))).build());
-            case SurveyResult.Notice notice -> new Screen(notice.text(), null);
+            case SurveyResult.Notice notice -> new Screen(TelegramHtml.escape(notice.text()), null);
             default -> throw new IllegalArgumentException("Use DiaryView for calendar and statistics screens");
         };
     }
 
     public String entryText(ru.dreamjournal.diary.SleepEntry entry) {
-        return header(entry.entryDate(), entry.timeZone()) + summary(entry.answers());
+        return header(entry.entryDate()) + summary(entry.answers());
     }
 
     private Screen draft(SurveyResult.Draft draft) {
         SurveySession session = draft.session();
         var rows = new ArrayList<InlineKeyboardRow>();
-        String text = header(session.entryDate(), session.timeZone());
+        String text = header(session.entryDate());
         if (session.step().isQuestion()) {
-            text += "Вопрос " + (session.step().ordinal() + 1) + " из 7\n\n";
+            text += TelegramHtml.italic("Вопрос " + (session.step().ordinal() + 1) + " из 7") + "\n\n";
         }
         if (draft.hint() != null) {
-            text += draft.hint() + "\n\n";
+            text += TelegramHtml.escape(draft.hint()) + "\n\n";
         }
         text += switch (session.step()) {
-            case QUALITY -> "Как оцениваешь качество сна?\n1 — очень плохо, 10 — отлично.";
-            case DURATION -> "Отметь, сколько часов длился твой сон:";
-            case AWAKENINGS -> "Сколько раз просыпался ночью?";
-            case BEDTIME_STATES -> "В каком состоянии был перед сном?\nМожно выбрать несколько вариантов.\n"
-                    + "Повторное нажатие снимает отметку. Затем нажми «Готово».";
-            case ACTIVITIES -> "Что делал перед сном?\nНапиши текстом, до 1000 символов, или пропусти вопрос.";
-            case MORNING_REST -> "Насколько отдохнувшим чувствуешь себя утром?\n"
-                    + "1 — совсем не отдохнул, 10 — полностью отдохнул.";
-            case COMMENT -> "Хочешь добавить комментарий к записи?\n"
-                    + "Напиши текстом, до 1000 символов, или пропусти вопрос.";
-            case REVIEW -> "Проверь ответы перед сохранением.\n\n" + summary(session.answers());
-            case EDIT -> "Какой ответ хочешь изменить?";
+            case QUALITY -> question("Как оцениваешь качество сна?", "1 — очень плохо, 10 — отлично.");
+            case DURATION -> TelegramHtml.bold("Отметь, сколько часов длился твой сон:");
+            case AWAKENINGS -> TelegramHtml.bold("Сколько раз просыпался ночью?");
+            case BEDTIME_STATES -> question("В каком состоянии был перед сном?",
+                    "Можно выбрать несколько вариантов.\nПовторное нажатие снимает отметку. Затем нажми «Готово».");
+            case ACTIVITIES -> question("Что делал перед сном?",
+                    "Напиши текстом, до 1000 символов, или пропусти вопрос.");
+            case MORNING_REST -> question("Насколько отдохнувшим чувствуешь себя утром?",
+                    "1 — совсем не отдохнул, 10 — полностью отдохнул.");
+            case COMMENT -> question("Хочешь добавить комментарий к записи?",
+                    "Напиши текстом, до 1000 символов, или пропусти вопрос.");
+            case REVIEW -> TelegramHtml.bold("Проверь ответы перед сохранением") + "\n\n" + summary(session.answers());
+            case EDIT -> TelegramHtml.bold("Какой ответ хочешь изменить?");
         };
         if (session.step().isQuestion()) {
             String current = answer(session.answers(), session.step());
             if (current != null) {
-                text += "\n\nТекущий ответ: " + current;
+                text += "\n\nТекущий ответ:\n" + TelegramHtml.escape(current);
             }
         }
 
@@ -125,17 +126,25 @@ public class SurveyView {
         return new InlineKeyboardRow(button("Календарь", "c:" + month), button("Статистика", "t:" + month));
     }
 
-    private String header(LocalDate date, String timeZone) {
-        return "🌙 Запись за " + date.format(DATE) + " · " + timeZone + "\n\n";
+    static String header(LocalDate date) {
+        return "🌙 " + TelegramHtml.bold("Запись за " + date.format(DATE)) + "\n\n";
+    }
+
+    private String question(String title, String hint) {
+        return TelegramHtml.bold(title) + "\n" + TelegramHtml.italic(hint);
     }
 
     private String summary(SleepAnswers answers) {
         StringBuilder text = new StringBuilder();
-        for (SurveyStep step : SurveyStep.values()) {
-            if (step.isQuestion()) {
-                String value = answer(answers, step);
-                text.append(step.label()).append(": ").append(value == null ? "—" : value).append("\n\n");
-            }
+        for (SurveyStep step : List.of(SurveyStep.QUALITY, SurveyStep.DURATION,
+                SurveyStep.AWAKENINGS, SurveyStep.MORNING_REST)) {
+            String value = answer(answers, step);
+            text.append(step.label()).append(": ").append(value == null ? "—" : TelegramHtml.bold(value)).append("\n");
+        }
+        for (SurveyStep step : List.of(SurveyStep.BEDTIME_STATES, SurveyStep.ACTIVITIES, SurveyStep.COMMENT)) {
+            String value = answer(answers, step);
+            text.append("\n").append(TelegramHtml.bold(step.label())).append("\n")
+                    .append(value == null ? "—" : TelegramHtml.escape(value)).append("\n");
         }
         return text.toString().stripTrailing();
     }

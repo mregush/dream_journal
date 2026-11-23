@@ -78,6 +78,7 @@ class SurveyTelegramControllerTest {
         verify(client).execute(any(AnswerCallbackQuery.class));
         verify(client).execute(argThat((BotApiMethod<?> method) -> method instanceof EditMessageText edit
                 && edit.getMessageId() == 10
+                && "HTML".equals(edit.getParseMode())
                 && edit.getReplyMarkup().getKeyboard().getFirst().getFirst().getText().startsWith("✅")));
         verify(client, never()).execute(any(SendMessage.class));
     }
@@ -93,6 +94,7 @@ class SurveyTelegramControllerTest {
 
         verify(client).execute(any(AnswerCallbackQuery.class));
         verify(client).execute(argThat((BotApiMethod<?> method) -> method instanceof SendMessage message
+                && "HTML".equals(message.getParseMode())
                 && message.getText().contains("Отметь, сколько часов длился твой сон:")));
         verify(client).execute(any(EditMessageReplyMarkup.class));
     }

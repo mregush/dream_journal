@@ -6,15 +6,19 @@ import ru.dreamjournal.diary.DiaryCallback;
 import ru.dreamjournal.diary.SleepAnswers;
 import ru.dreamjournal.diary.SleepDuration;
 import ru.dreamjournal.diary.SleepDurationRange;
+import ru.dreamjournal.diary.SleepEntry;
 import ru.dreamjournal.diary.SurveyCallback;
 import ru.dreamjournal.diary.SurveyResult;
 import ru.dreamjournal.diary.SurveySession;
 import ru.dreamjournal.diary.SurveyStep;
 
 import java.nio.charset.StandardCharsets;
+import java.io.StringReader;
 import java.time.LocalDate;
 import java.util.Set;
 import java.util.UUID;
+import javax.xml.parsers.DocumentBuilderFactory;
+import org.xml.sax.InputSource;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -33,7 +37,7 @@ class SurveyViewTest {
             var screen = view.render(new SurveyResult.Draft(session));
 
             assertThat(screen.text().length()).isLessThanOrEqualTo(4096);
-            assertThat(screen.text()).contains("23.11.2026", "Europe/Moscow");
+            assertThat(screen.text()).contains("23.11.2026").doesNotContain("Europe/Moscow");
             screen.keyboard().getKeyboard().forEach(row -> row.forEach(button -> {
                 assertThat(button.getCallbackData().getBytes(StandardCharsets.UTF_8).length).isLessThanOrEqualTo(64);
                 assertThat(SurveyCallback.parse(button.getCallbackData()).isPresent()
@@ -78,6 +82,66 @@ class SurveyViewTest {
                 .containsExactly("0", "1–2", "2–3", "3–4", "4–5", "5–6", "6–7", "7–8", "8–9", "9–10", "10–12", "12+");
         var review = session.change(SurveyStep.REVIEW, session.answers().withDuration(SleepDurationRange.TWELVE_PLUS),
                 false, false);
-        assertThat(view.render(new SurveyResult.Draft(review)).text()).contains("Длительность сна: 12+ ч");
+        assertThat(view.render(new SurveyResult.Draft(review)).text()).contains("Длительность сна: <b>12+ ч</b>");
+    }
+
+    @Test
+    void savedCardGroupsMetricsAndKeepsLongAnswersInSeparateReadableBlocks() {
+        var answers = new SleepAnswers(9, SleepDuration.selected(SleepDurationRange.EIGHT_TO_NINE),
+                6, Set.of(BedtimeState.RELAXED), "смотрел рилсы", 7, "норм");
+        var entry = new SleepEntry(42, LocalDate.of(2026, 11, 23), "Europe/Moscow", answers);
+
+        assertThat(view.render(new SurveyResult.Saved(entry, false)).text()).isEqualTo("""
+                За этот день уже есть запись.
+
+                🌙 <b>Запись за 23.11.2026</b>
+
+                Качество сна: <b>9/10</b>
+                Длительность сна: <b>8–9 ч</b>
+                Ночные пробуждения: <b>6</b>
+                Ощущение отдыха утром: <b>7/10</b>
+
+                <b>Состояние перед сном</b>
+                Расслабленное
+
+                <b>Занятия перед сном</b>
+                смотрел рилсы
+
+                <b>Комментарий</b>
+                норм""");
+    }
+
+    @Test
+    void htmlFormattingPreservesLiteralAnswersOnEveryScreenAndFitsTheParsedTextLimit() throws Exception {
+        String answer = "<b>сон</b> & < > \"текст\"\n🌙";
+        String longAnswer = (answer + "&".repeat(1000)).substring(0, 1000);
+        var answers = new SleepAnswers(9, SleepDuration.selected(SleepDurationRange.EIGHT_TO_NINE),
+                6, Set.of(BedtimeState.RELAXED), longAnswer, 7, longAnswer);
+        for (SurveyStep step : SurveyStep.values()) {
+            var session = new SurveySession(42, UUID.randomUUID(), LocalDate.of(2026, 11, 23),
+                    "Europe/Moscow", step, 0, false, false, answers);
+            String html = view.render(new SurveyResult.Draft(session, "Подсказка: < > &")).text();
+            String visible = visibleText(html);
+
+            assertThat(visible.length()).isLessThanOrEqualTo(4096);
+            assertThat(visible).contains("Подсказка: < > &");
+            if (step == SurveyStep.ACTIVITIES || step == SurveyStep.COMMENT || step == SurveyStep.REVIEW) {
+                assertThat(visible).contains(longAnswer);
+                assertThat(html).contains("&lt;b&gt;сон&lt;/b&gt; &amp;");
+            }
+        }
+        var entry = new SleepEntry(42, LocalDate.of(2026, 11, 23), "Europe/Moscow", answers);
+        for (boolean justSaved : new boolean[]{true, false}) {
+            String visible = visibleText(view.render(new SurveyResult.Saved(entry, justSaved)).text());
+            assertThat(visible).contains(longAnswer);
+            assertThat(visible.length()).isLessThanOrEqualTo(4096);
+        }
+        assertThat(visibleText(view.render(new SurveyResult.Notice(answer)).text())).isEqualTo(answer);
+    }
+
+    private String visibleText(String html) throws Exception {
+        return DocumentBuilderFactory.newInstance().newDocumentBuilder()
+                .parse(new InputSource(new StringReader("<message>" + html + "</message>")))
+                .getDocumentElement().getTextContent();
     }
 }

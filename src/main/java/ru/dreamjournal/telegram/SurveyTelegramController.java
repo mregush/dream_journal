@@ -100,7 +100,8 @@ public class SurveyTelegramController {
     private boolean send(long chatId, SurveyResult result) {
         SurveyView.Screen screen = view.render(result);
         try {
-            client.execute(SendMessage.builder().chatId(chatId).text(screen.text()).replyMarkup(screen.keyboard()).build());
+            client.execute(SendMessage.builder().chatId(chatId).text(screen.text()).parseMode("HTML")
+                    .replyMarkup(screen.keyboard()).build());
             return true;
         } catch (TelegramApiException exception) {
             log.warn("Diary message delivery failed ({})", exception.getClass().getSimpleName());
@@ -112,7 +113,7 @@ public class SurveyTelegramController {
         SurveyView.Screen screen = view.render(result);
         try {
             client.execute(EditMessageText.builder().chatId(chatId).messageId(messageId)
-                    .text(screen.text()).replyMarkup(screen.keyboard()).build());
+                    .text(screen.text()).parseMode("HTML").replyMarkup(screen.keyboard()).build());
             return true;
         } catch (TelegramApiException exception) {
             log.warn("Diary message update failed ({})", exception.getClass().getSimpleName());

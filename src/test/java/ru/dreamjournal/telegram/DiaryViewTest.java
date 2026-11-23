@@ -54,20 +54,34 @@ class DiaryViewTest {
     }
 
     @Test
-    void calendarMarksCompletedEntriesDraftsAndToday() {
+    void calendarKeepsDayLabelsCompactAndShowsTodayAboveTheGrid() {
+        var yesterday = entry(today.minusDays(1), SleepDuration.selected(SleepDurationRange.SEVEN_TO_EIGHT));
         var entry = entry(today, SleepDuration.selected(SleepDurationRange.SEVEN_TO_EIGHT));
         var draft = new SurveySession(42, UUID.randomUUID(), today, "Europe/Moscow", SurveyStep.EDIT,
                 1, true, false, entry.answers());
 
-        var screen = view.render(new SurveyResult.Calendar(period(YearMonth.from(today), List.of(entry), draft)));
+        var screen = view.render(new SurveyResult.Calendar(period(YearMonth.from(today), List.of(yesterday, entry), draft)));
 
         assertThat(buttons(screen).stream().filter(button -> button.getCallbackData().equals("day:" + today))
-                .map(InlineKeyboardButton::getText)).containsExactly("[23]✅✏️");
+                .map(InlineKeyboardButton::getText)).containsExactly("23*");
+        assertThat(buttons(screen).stream().filter(button -> button.getCallbackData().equals("day:" + today.minusDays(1)))
+                .map(InlineKeyboardButton::getText)).containsExactly("22✓");
+        assertThat(screen.text()).contains("Сегодня: <b>23 ноября</b>", "✓ запись · * черновик / изменения");
+        assertThat(buttons(screen).stream().filter(button -> button.getCallbackData().startsWith("day:"))
+                .map(InlineKeyboardButton::getText)).allSatisfy(label -> assertThat(label.length()).isLessThanOrEqualTo(3));
+
+        var draftOnly = view.render(new SurveyResult.Calendar(period(YearMonth.from(today), List.of(), draft)));
+        assertThat(buttons(draftOnly).stream().filter(button -> button.getCallbackData().equals("day:" + today))
+                .map(InlineKeyboardButton::getText)).containsExactly("23*");
+        var savedToday = view.render(new SurveyResult.Calendar(period(YearMonth.from(today), List.of(entry), null)));
+        assertThat(buttons(savedToday).stream().filter(button -> button.getCallbackData().equals("day:" + today))
+                .map(InlineKeyboardButton::getText)).containsExactly("23✓");
     }
 
     @Test
     void navigationCrossesYearBoundaryAndDoesNotOfferFutureMonths() {
         var december = view.render(new SurveyResult.Calendar(period(YearMonth.of(2025, 12), List.of(), null)));
+        assertThat(december.text()).doesNotContain("Сегодня:");
         assertThat(buttons(december).stream().map(InlineKeyboardButton::getCallbackData))
                 .contains("c:2025-11", "c:2026-01", "c:2026-11", "t:2025-12");
 
@@ -112,13 +126,14 @@ class DiaryViewTest {
         }
         var period = period(YearMonth.of(2026, 10), entries, null);
         var stats = view.render(new SurveyResult.Statistics(MonthlyStatistics.calculate(period)));
-        assertThat(stats.text()).contains("Среднее качество сна: 8,0/10", "12+ ч — 1", "Прежние записи с точной длительностью",
-                "7 ч 30 мин — 1");
+        assertThat(stats.text()).contains("Среднее качество сна: <b>8,0/10</b>", "12+ ч — <b>1</b>",
+                "Прежние записи с точной длительностью", "7 ч 30 мин — <b>1</b>");
         var day = new DiaryDay(entries.getFirst().entryDate(), today, "Europe/Moscow", entries.getFirst(), null);
         for (var result : List.of(new SurveyResult.Calendar(period), new SurveyResult.Statistics(MonthlyStatistics.calculate(period)),
                 new SurveyResult.Day(day))) {
             var screen = view.render(result);
             assertThat(screen.text().length()).isLessThanOrEqualTo(4096);
+            assertThat(screen.text()).doesNotContain("Europe/Moscow");
             screen.keyboard().validate();
             buttons(screen).forEach(button -> assertThat(button.getCallbackData().getBytes(StandardCharsets.UTF_8).length)
                     .isLessThanOrEqualTo(64));
