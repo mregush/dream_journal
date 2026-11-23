@@ -187,6 +187,13 @@ public class SurveyService {
                 .orElseGet(() -> new SurveyResult.Notice(NO_DRAFT));
     }
 
+    @Transactional
+    public void recordPrompt(SurveySession session, int messageId) {
+        if (session.step().isQuestion() && messageId > 0) {
+            repository.recordPrompt(session.userId(), session.id(), session.revision(), messageId);
+        }
+    }
+
     private SurveyResult editSavedEntry(long userId, String data) {
         String[] parts = data.split(":", -1);
         if (parts.length != 3 || !parts[2].equals("edit")) {
@@ -222,7 +229,7 @@ public class SurveyService {
         SurveyStep next = session.returnToReview() ? SurveyStep.REVIEW : SurveyStep.values()[session.step().ordinal() + 1];
         SurveySession updated = session.change(next, answers, false, false);
         repository.saveSession(updated);
-        return new SurveyResult.Draft(updated);
+        return new SurveyResult.Draft(updated, null, new SurveyResult.AnsweredQuestion(session, answers));
     }
 
     private SurveyResult.Draft persist(SurveySession session) {

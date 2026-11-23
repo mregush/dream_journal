@@ -21,6 +21,7 @@ public class TelegramUpdateHandler {
             /diary — сделать запись или продолжить черновик.
             /calendar — календарь дневника.
             /stats — статистика месяца.
+            /settings — время и настройки ежедневных напоминаний.
 
             /help — доступные команды.
             """;
@@ -31,24 +32,28 @@ public class TelegramUpdateHandler {
             /diary — сделать запись или продолжить черновик
             /calendar — календарь, просмотр и заполнение прошлых дней
             /stats — статистика месяца
+            /settings — ежедневные напоминания, время и часовой пояс
             /cancel — отложить опрос, сохранив ответы
             /help — показать справку
 
             После семи вопросов можно проверить, исправить и сохранить запись.
-            Настройка ежедневных напоминаний пока готовится.
+            Включить напоминания и выбрать время — /settings.
             """;
 
     private final TelegramClient client;
     private final UserRegistrationService registrationService;
     private final String botUsername;
     private final SurveyTelegramController surveyController;
+    private final ReminderSettingsController settingsController;
 
     public TelegramUpdateHandler(TelegramClient client, UserRegistrationService registrationService,
-                                 TelegramBotProperties properties, SurveyTelegramController surveyController) {
+                                 TelegramBotProperties properties, SurveyTelegramController surveyController,
+                                 ReminderSettingsController settingsController) {
         this.client = client;
         this.registrationService = registrationService;
         this.botUsername = properties.username();
         this.surveyController = surveyController;
+        this.settingsController = settingsController;
     }
 
     public void handle(Update update) {
@@ -58,8 +63,14 @@ public class TelegramUpdateHandler {
                     && query.getMessage() instanceof Message message && message.getChat() != null
                     && "private".equals(message.getChat().getType())
                     && query.getFrom().getId().equals(message.getChatId())) {
-                surveyController.callback(query.getFrom().getId(), message.getChatId(), message.getMessageId(),
-                        query.getId(), query.getData());
+                if (query.getData() != null && query.getData().startsWith("r:")) {
+                    settingsController.callback(query.getFrom().getId(), message.getChatId(), message.getMessageId(),
+                            query.getId(), query.getData());
+                } else {
+                    settingsController.cancelInput(query.getFrom().getId());
+                    surveyController.callback(query.getFrom().getId(), message.getChatId(), message.getMessageId(),
+                            query.getId(), query.getData());
+                }
             }
             return;
         }
@@ -75,7 +86,9 @@ public class TelegramUpdateHandler {
 
         String command = message.getText().strip().split("\\s+", 2)[0];
         if (!command.startsWith("/")) {
-            surveyController.text(message.getFrom().getId(), message.getChatId(), message.getText());
+            if (!settingsController.text(message.getFrom().getId(), message.getChatId(), message.getText())) {
+                surveyController.text(message.getFrom().getId(), message.getChatId(), message.getText());
+            }
             return;
         }
         int mentionIndex = command.indexOf('@');
@@ -86,6 +99,7 @@ public class TelegramUpdateHandler {
             command = command.substring(0, mentionIndex);
         }
 
+        boolean cancelledSettingsInput = settingsController.cancelInput(message.getFrom().getId());
         switch (command) {
             case "/start" -> start(message);
             case "/diary" -> {
@@ -93,7 +107,18 @@ public class TelegramUpdateHandler {
                     surveyController.open(message.getFrom().getId(), message.getChatId());
                 }
             }
-            case "/cancel" -> surveyController.pause(message.getFrom().getId(), message.getChatId());
+            case "/cancel" -> {
+                if (cancelledSettingsInput) {
+                    settingsController.open(message.getFrom().getId(), message.getChatId());
+                } else {
+                    surveyController.pause(message.getFrom().getId(), message.getChatId());
+                }
+            }
+            case "/settings" -> {
+                if (register(message)) {
+                    settingsController.open(message.getFrom().getId(), message.getChatId());
+                }
+            }
             case "/calendar" -> {
                 if (register(message)) {
                     surveyController.calendar(message.getFrom().getId(), message.getChatId());

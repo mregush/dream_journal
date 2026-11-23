@@ -16,7 +16,9 @@ import org.telegram.telegrambots.meta.generics.TelegramClient;
 import ru.dreamjournal.diary.SurveyService;
 import ru.dreamjournal.diary.DiaryService;
 import ru.dreamjournal.user.UserRegistrationService;
+import ru.dreamjournal.reminder.ReminderService;
 
+import java.time.Clock;
 import java.util.List;
 
 @Configuration(proxyBeanMethods = false)
@@ -39,8 +41,14 @@ public class TelegramConfiguration {
     TelegramUpdateHandler telegramUpdateHandler(TelegramClient client,
                                                  UserRegistrationService registrationService,
                                                  TelegramBotProperties properties,
-                                                 SurveyTelegramController surveyController) {
-        return new TelegramUpdateHandler(client, registrationService, properties, surveyController);
+                                                 SurveyTelegramController surveyController,
+                                                 ReminderSettingsController settingsController) {
+        return new TelegramUpdateHandler(client, registrationService, properties, surveyController, settingsController);
+    }
+
+    @Bean
+    ReminderSettingsController reminderSettingsController(TelegramClient client, ReminderService service, Clock clock) {
+        return new ReminderSettingsController(client, service, clock);
     }
 
     @Bean
@@ -74,6 +82,7 @@ public class TelegramConfiguration {
                         new BotCommand("diary", "Запись в дневник"),
                         new BotCommand("calendar", "Календарь дневника"),
                         new BotCommand("stats", "Статистика месяца"),
+                        new BotCommand("settings", "Время и настройки напоминаний"),
                         new BotCommand("cancel", "Отложить опрос и сохранить черновик"),
                         new BotCommand("help", "Помощь")
                 )).build());

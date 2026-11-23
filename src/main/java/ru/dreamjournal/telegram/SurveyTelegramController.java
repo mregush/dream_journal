@@ -29,12 +29,14 @@ public class SurveyTelegramController {
     private final SurveyService service;
     private final DiaryService diaryService;
     private final DiaryView view;
+    private final SurveyView surveyView;
 
     public SurveyTelegramController(TelegramClient client, SurveyService service, DiaryService diaryService, SurveyView view) {
         this.client = client;
         this.service = service;
         this.diaryService = diaryService;
         this.view = new DiaryView(view);
+        this.surveyView = view;
     }
 
     public void open(long userId, long chatId) {
@@ -42,7 +44,10 @@ public class SurveyTelegramController {
     }
 
     public void text(long userId, long chatId, String text) {
-        send(chatId, perform(() -> service.answerText(userId, text)));
+        SurveyResult result = perform(() -> service.answerText(userId, text));
+        if (send(chatId, result)) {
+            completePreviousQuestion(chatId, result, null);
+        }
     }
 
     public void pause(long userId, long chatId) {
@@ -71,7 +76,8 @@ public class SurveyTelegramController {
                     case ADD -> service.openDate(userId, navigation.get().date());
                     case NOOP -> throw new IllegalStateException("Non-interactive calendar cell");
                 });
-        acknowledge(queryId, result instanceof SurveyResult.Notice notice ? notice.text() : null);
+        acknowledge(queryId, result instanceof SurveyResult.Notice(String text)
+            ? text : null);
         if (result instanceof SurveyResult.Notice) {
             return;
         }
@@ -84,7 +90,9 @@ public class SurveyTelegramController {
             return;
         }
         if (send(chatId, result)) {
-            clearKeyboard(chatId, messageId);
+            if (!completePreviousQuestion(chatId, result, messageId)) {
+                clearKeyboard(chatId, messageId);
+            }
         }
     }
 
@@ -100,8 +108,11 @@ public class SurveyTelegramController {
     private boolean send(long chatId, SurveyResult result) {
         SurveyView.Screen screen = view.render(result);
         try {
-            client.execute(SendMessage.builder().chatId(chatId).text(screen.text()).parseMode("HTML")
+            var sent = client.execute(SendMessage.builder().chatId(chatId).text(screen.text()).parseMode("HTML")
                     .replyMarkup(screen.keyboard()).build());
+            if (sent != null) {
+                rememberPrompt(result, sent.getMessageId());
+            }
             return true;
         } catch (TelegramApiException exception) {
             log.warn("Diary message delivery failed ({})", exception.getClass().getSimpleName());
@@ -114,6 +125,7 @@ public class SurveyTelegramController {
         try {
             client.execute(EditMessageText.builder().chatId(chatId).messageId(messageId)
                     .text(screen.text()).parseMode("HTML").replyMarkup(screen.keyboard()).build());
+            rememberPrompt(result, messageId);
             return true;
         } catch (TelegramApiException exception) {
             log.warn("Diary message update failed ({})", exception.getClass().getSimpleName());
@@ -126,6 +138,36 @@ public class SurveyTelegramController {
             client.execute(AnswerCallbackQuery.builder().callbackQueryId(queryId).text(text).build());
         } catch (TelegramApiException exception) {
             log.warn("Callback acknowledgement failed ({})", exception.getClass().getSimpleName());
+        }
+    }
+
+    private void rememberPrompt(SurveyResult result, Integer messageId) {
+        if (result instanceof SurveyResult.Draft draft && draft.session().step().isQuestion() && messageId != null) {
+            try {
+                service.recordPrompt(draft.session(), messageId);
+            } catch (DataAccessException exception) {
+                log.warn("Question message reference could not be saved ({})", exception.getClass().getSimpleName());
+            }
+        }
+    }
+
+    private boolean completePreviousQuestion(long chatId, SurveyResult result, Integer callbackMessageId) {
+        if (!(result instanceof SurveyResult.Draft draft) || draft.answeredQuestion() == null) {
+            return false;
+        }
+        var answered = draft.answeredQuestion();
+        Integer messageId = callbackMessageId != null ? callbackMessageId : answered.question().promptMessageId();
+        if (messageId == null) {
+            return false;
+        }
+        var screen = surveyView.answeredQuestion(answered);
+        try {
+            client.execute(EditMessageText.builder().chatId(chatId).messageId(messageId)
+                    .text(screen.text()).parseMode("HTML").replyMarkup(screen.keyboard()).build());
+            return true;
+        } catch (TelegramApiException exception) {
+            log.warn("Answered question update failed ({})", exception.getClass().getSimpleName());
+            return false;
         }
     }
 

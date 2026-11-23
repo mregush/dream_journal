@@ -96,7 +96,7 @@ class DiaryViewTest {
         LocalDate past = LocalDate.of(2026, 10, 25);
         var filled = view.render(new SurveyResult.Day(new DiaryDay(past, today, "Europe/Moscow",
                 entry(past, SleepDuration.legacy(450)), null)));
-        assertThat(filled.text()).contains("25.10.2026", "7 ч 30 мин");
+        assertThat(filled.text()).contains("25.10.2026", "7ч 30 мин");
         assertThat(buttons(filled).stream().map(InlineKeyboardButton::getCallbackData))
                 .contains("e:2026-10-25:edit", "c:2026-10", "t:2026-10");
 
@@ -126,8 +126,9 @@ class DiaryViewTest {
         }
         var period = period(YearMonth.of(2026, 10), entries, null);
         var stats = view.render(new SurveyResult.Statistics(MonthlyStatistics.calculate(period)));
-        assertThat(stats.text()).contains("Среднее качество сна: <b>8,0/10</b>", "12+ ч — <b>1</b>",
-                "Прежние записи с точной длительностью", "7 ч 30 мин — <b>1</b>");
+        assertThat(stats.text()).contains("Среднее качество сна: <b>8,0</b>", "Среднее ощущение отдыха: <b>7,0</b>",
+                "12+ч — <b>1</b>", "Прежние записи с точной длительностью", "7ч 30 мин — <b>1</b>")
+                .doesNotContain("/10");
         var day = new DiaryDay(entries.getFirst().entryDate(), today, "Europe/Moscow", entries.getFirst(), null);
         for (var result : List.of(new SurveyResult.Calendar(period), new SurveyResult.Statistics(MonthlyStatistics.calculate(period)),
                 new SurveyResult.Day(day))) {

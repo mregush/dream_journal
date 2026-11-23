@@ -115,13 +115,13 @@ public class DiaryView {
         if (count == 0) {
             text.append("\n\nЗа этот месяц пока нет завершённых записей.");
         } else {
-            text.append("\n\nСреднее качество сна: ").append(TelegramHtml.bold(average(stats.averageQuality()) + "/10"))
-                    .append("\nСреднее ощущение отдыха: ").append(TelegramHtml.bold(average(stats.averageRest()) + "/10"))
+            text.append("\n\nСреднее качество сна: ").append(TelegramHtml.bold(average(stats.averageQuality())))
+                    .append("\nСреднее ощущение отдыха: ").append(TelegramHtml.bold(average(stats.averageRest())))
                     .append("\nСреднее число пробуждений: ").append(TelegramHtml.bold(average(stats.averageAwakenings())))
                     .append("\nНочей без пробуждений: ").append(TelegramHtml.bold(stats.uninterruptedNights()))
                     .append("\n\n<b>Длительность сна — ночей</b>");
             stats.durationCounts().forEach((range, nights) -> text.append("\n").append(TelegramHtml.escape(range.hours()))
-                    .append(" ч — ").append(TelegramHtml.bold(nights)));
+                    .append("ч — ").append(TelegramHtml.bold(nights)));
             if (!stats.legacyDurationCounts().isEmpty()) {
                 text.append("\n\n<b>Прежние записи с точной длительностью — ночей</b>");
                 stats.legacyDurationCounts().forEach((minutes, nights) -> text.append("\n")

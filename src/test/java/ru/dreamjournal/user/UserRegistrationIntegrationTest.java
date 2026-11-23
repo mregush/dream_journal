@@ -41,6 +41,7 @@ class UserRegistrationIntegrationTest {
         assertThat(jdbcClient.sql("SELECT success FROM flyway_schema_history WHERE version = '1'")
                 .query(Boolean.class).single()).isTrue();
         assertThat(context.getBeansOfType(TelegramBotsLongPollingApplication.class)).isEmpty();
+        assertThat(context.getBeansOfType(ru.dreamjournal.reminder.ReminderDispatcher.class)).isEmpty();
     }
 
     @Test

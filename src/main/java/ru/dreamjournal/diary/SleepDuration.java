@@ -21,6 +21,6 @@ public record SleepDuration(SleepDurationRange range, Integer exactMinutes) {
     }
 
     public String label() {
-        return range != null ? range.hours() + " ч" : exactMinutes / 60 + " ч " + exactMinutes % 60 + " мин";
+        return range != null ? range.hours() + "ч" : exactMinutes / 60 + "ч " + exactMinutes % 60 + " мин";
     }
 }

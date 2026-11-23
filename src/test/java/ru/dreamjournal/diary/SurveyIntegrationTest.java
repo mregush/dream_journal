@@ -101,6 +101,38 @@ class SurveyIntegrationTest {
     }
 
     @Test
+    void completedQuestionCarriesTheAcceptedAnswerAndPersistedPromptReference() {
+        SurveySession first = draft(service.open(42));
+        service.recordPrompt(first, 101);
+        assertThat(new SurveyRepository(jdbc).findSession(42).orElseThrow().promptMessageId()).isEqualTo(101);
+
+        var result = (SurveyResult.Draft) service.action(42, SurveyCallback.data(first, "v8"));
+
+        assertThat(result.answeredQuestion().question().step()).isEqualTo(SurveyStep.QUALITY);
+        assertThat(result.answeredQuestion().question().promptMessageId()).isEqualTo(101);
+        assertThat(result.answeredQuestion().answers().quality()).isEqualTo(8);
+        assertThat(result.session().promptMessageId()).isNull();
+        service.recordPrompt(result.session(), 102);
+        service.recordPrompt(first, 999);
+        assertThat(repository.findSession(42).orElseThrow().promptMessageId()).isEqualTo(102);
+    }
+
+    @Test
+    void textAnswerUsesThePersistedPromptAndValidationDoesNotCompleteTheQuestion() {
+        SurveySession activities = click(click(states(), "state0"), "done");
+        service.recordPrompt(activities, 201);
+
+        var invalid = (SurveyResult.Draft) service.answerText(42, "a".repeat(1001));
+        assertThat(invalid.answeredQuestion()).isNull();
+        assertThat(invalid.session().promptMessageId()).isEqualTo(201);
+        var accepted = (SurveyResult.Draft) service.answerText(42, "Читал книгу");
+        assertThat(accepted.answeredQuestion().question().promptMessageId()).isEqualTo(201);
+        assertThat(accepted.answeredQuestion().answers().activities()).isEqualTo("Читал книгу");
+        assertThat(accepted.session().step()).isEqualTo(SurveyStep.MORNING_REST);
+        assertThat(repository.findSession(42).orElseThrow().promptMessageId()).isNull();
+    }
+
+    @Test
     void pausePreservesAnswersAndInvalidatesOldButtonsUntilResume() {
         SurveySession session = click(draft(service.open(42)), "v7");
 

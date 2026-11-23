@@ -23,7 +23,7 @@ public class SurveyRepository {
             rs.getLong("telegram_user_id"), rs.getObject("id", UUID.class),
             rs.getObject("entry_date", LocalDate.class), rs.getString("time_zone"),
             SurveyStep.valueOf(rs.getString("step")), rs.getLong("revision"), rs.getBoolean("paused"),
-            rs.getBoolean("return_to_review"), readAnswers(rs));
+            rs.getBoolean("return_to_review"), readAnswers(rs), rs.getObject("prompt_message_id", Integer.class));
     private static final RowMapper<SleepEntry> ENTRY_MAPPER = (rs, row) -> new SleepEntry(
             rs.getLong("telegram_user_id"), rs.getObject("entry_date", LocalDate.class),
             rs.getString("time_zone"), readAnswers(rs));
@@ -70,9 +70,9 @@ public class SurveyRepository {
         withAnswers(jdbc.sql("""
                 INSERT INTO survey_sessions (telegram_user_id, id, entry_date, time_zone, step, revision,
                     paused, return_to_review, sleep_quality, duration_minutes, duration_range, awakenings, bedtime_states,
-                    bedtime_activities, morning_rest, comment)
+                    bedtime_activities, morning_rest, comment, prompt_message_id)
                 VALUES (:userId, :id, :date, :zone, :step, :revision, :paused, :returnToReview,
-                    :quality, :duration, :durationRange, :awakenings, string_to_array(:states, ','), :activities, :rest, :comment)
+                    :quality, :duration, :durationRange, :awakenings, string_to_array(:states, ','), :activities, :rest, :comment, :promptMessageId)
                 ON CONFLICT (telegram_user_id) DO UPDATE SET
                     id = EXCLUDED.id, entry_date = EXCLUDED.entry_date, time_zone = EXCLUDED.time_zone,
                     step = EXCLUDED.step, revision = EXCLUDED.revision, paused = EXCLUDED.paused,
@@ -81,12 +81,21 @@ public class SurveyRepository {
                     awakenings = EXCLUDED.awakenings,
                     bedtime_states = EXCLUDED.bedtime_states, bedtime_activities = EXCLUDED.bedtime_activities,
                     morning_rest = EXCLUDED.morning_rest, comment = EXCLUDED.comment,
+                    prompt_message_id = EXCLUDED.prompt_message_id,
                     updated_at = CURRENT_TIMESTAMP
                 """), session.answers())
                 .param("userId", session.userId()).param("id", session.id()).param("date", session.entryDate())
                 .param("zone", session.timeZone()).param("step", session.step().name())
                 .param("revision", session.revision()).param("paused", session.paused())
-                .param("returnToReview", session.returnToReview()).update();
+                .param("returnToReview", session.returnToReview()).param("promptMessageId", session.promptMessageId()).update();
+    }
+
+    public void recordPrompt(long userId, UUID sessionId, long revision, int messageId) {
+        jdbc.sql("""
+                UPDATE survey_sessions SET prompt_message_id = :messageId
+                WHERE telegram_user_id = :userId AND id = :sessionId AND revision = :revision AND NOT paused
+                """).param("messageId", messageId).param("userId", userId)
+                .param("sessionId", sessionId).param("revision", revision).update();
     }
 
     public void saveEntry(SleepEntry entry) {

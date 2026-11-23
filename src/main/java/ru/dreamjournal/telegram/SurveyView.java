@@ -26,7 +26,7 @@ public class SurveyView {
         return switch (result) {
             case SurveyResult.Draft draft -> draft(draft);
             case SurveyResult.Saved saved -> new Screen(
-                    (saved.justSaved() ? "✅ Запись сохранена\n\n" : "За этот день уже есть запись.\n\n")
+                    (saved.justSaved() ? "✅ Запись сохранена\n\n" : "")
                             + entryText(saved.entry()),
                     InlineKeyboardMarkup.builder().keyboard(List.of(
                             new InlineKeyboardRow(button("Изменить", "e:" + saved.entry().entryDate() + ":edit")),
@@ -40,6 +40,16 @@ public class SurveyView {
         return header(entry.entryDate()) + summary(entry.answers());
     }
 
+    public Screen answeredQuestion(SurveyResult.AnsweredQuestion answered) {
+        var question = answered.question();
+        String value = answer(answered.answers(), question.step());
+        String text = header(question.entryDate())
+                + TelegramHtml.italic("Вопрос " + (question.step().ordinal() + 1) + " из 7") + "\n\n"
+                + questionText(question.step()) + "\n\n"
+                + TelegramHtml.bold("Твой ответ:") + "\n" + TelegramHtml.escape(value == null ? "Пропущено" : value);
+        return new Screen(text, InlineKeyboardMarkup.builder().keyboard(List.of()).build());
+    }
+
     private Screen draft(SurveyResult.Draft draft) {
         SurveySession session = draft.session();
         var rows = new ArrayList<InlineKeyboardRow>();
@@ -51,19 +61,9 @@ public class SurveyView {
             text += TelegramHtml.escape(draft.hint()) + "\n\n";
         }
         text += switch (session.step()) {
-            case QUALITY -> question("Как оцениваешь качество сна?", "1 — очень плохо, 10 — отлично.");
-            case DURATION -> TelegramHtml.bold("Отметь, сколько часов длился твой сон:");
-            case AWAKENINGS -> TelegramHtml.bold("Сколько раз просыпался ночью?");
-            case BEDTIME_STATES -> question("В каком состоянии был перед сном?",
-                    "Можно выбрать несколько вариантов.\nПовторное нажатие снимает отметку. Затем нажми «Готово».");
-            case ACTIVITIES -> question("Что делал перед сном?",
-                    "Напиши текстом, до 1000 символов, или пропусти вопрос.");
-            case MORNING_REST -> question("Насколько отдохнувшим чувствуешь себя утром?",
-                    "1 — совсем не отдохнул, 10 — полностью отдохнул.");
-            case COMMENT -> question("Хочешь добавить комментарий к записи?",
-                    "Напиши текстом, до 1000 символов, или пропусти вопрос.");
             case REVIEW -> TelegramHtml.bold("Проверь ответы перед сохранением") + "\n\n" + summary(session.answers());
             case EDIT -> TelegramHtml.bold("Какой ответ хочешь изменить?");
+            default -> questionText(session.step());
         };
         if (session.step().isQuestion()) {
             String current = answer(session.answers(), session.step());
@@ -134,6 +134,23 @@ public class SurveyView {
         return TelegramHtml.bold(title) + "\n" + TelegramHtml.italic(hint);
     }
 
+    private String questionText(SurveyStep step) {
+        return switch (step) {
+            case QUALITY -> question("Как оцениваешь качество сна?", "1 — очень плохо, 10 — отлично.");
+            case DURATION -> TelegramHtml.bold("Отметь, сколько часов длился твой сон:");
+            case AWAKENINGS -> TelegramHtml.bold("Сколько раз просыпался ночью?");
+            case BEDTIME_STATES -> question("В каком состоянии был перед сном?",
+                    "Можно выбрать несколько вариантов.\nПовторное нажатие снимает отметку. Затем нажми «Готово».");
+            case ACTIVITIES -> question("Что делал перед сном?",
+                    "Напиши текстом, до 1000 символов, или пропусти вопрос.");
+            case MORNING_REST -> question("Насколько отдохнувшим чувствуешь себя утром?",
+                    "1 — совсем не отдохнул, 10 — полностью отдохнул.");
+            case COMMENT -> question("Хочешь добавить комментарий к записи?",
+                    "Напиши текстом, до 1000 символов, или пропусти вопрос.");
+            default -> throw new IllegalArgumentException("Expected a questionnaire step");
+        };
+    }
+
     private String summary(SleepAnswers answers) {
         StringBuilder text = new StringBuilder();
         for (SurveyStep step : List.of(SurveyStep.QUALITY, SurveyStep.DURATION,
@@ -143,7 +160,7 @@ public class SurveyView {
         }
         for (SurveyStep step : List.of(SurveyStep.BEDTIME_STATES, SurveyStep.ACTIVITIES, SurveyStep.COMMENT)) {
             String value = answer(answers, step);
-            text.append("\n").append(TelegramHtml.bold(step.label())).append("\n")
+            text.append("\n").append(TelegramHtml.bold(step.label() + ":")).append("\n")
                     .append(value == null ? "—" : TelegramHtml.escape(value)).append("\n");
         }
         return text.toString().stripTrailing();
@@ -151,13 +168,13 @@ public class SurveyView {
 
     private String answer(SleepAnswers answers, SurveyStep step) {
         return switch (step) {
-            case QUALITY -> answers.quality() == null ? null : answers.quality() + "/10";
+            case QUALITY -> answers.quality() == null ? null : answers.quality().toString();
             case DURATION -> answers.duration() == null ? null : answers.duration().label();
             case AWAKENINGS -> answers.awakenings() == null ? null : answers.awakenings().toString();
             case BEDTIME_STATES -> answers.bedtimeStates().isEmpty() ? null
                     : answers.bedtimeStates().stream().map(BedtimeState::label).collect(Collectors.joining(", "));
             case ACTIVITIES -> answers.activities();
-            case MORNING_REST -> answers.morningRest() == null ? null : answers.morningRest() + "/10";
+            case MORNING_REST -> answers.morningRest() == null ? null : answers.morningRest().toString();
             case COMMENT -> answers.comment();
             default -> null;
         };

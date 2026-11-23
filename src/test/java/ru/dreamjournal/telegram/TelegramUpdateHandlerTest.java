@@ -23,6 +23,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
+import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
 class TelegramUpdateHandlerTest {
@@ -33,13 +34,15 @@ class TelegramUpdateHandlerTest {
     private UserRegistrationService registrationService;
     @Mock
     private SurveyTelegramController surveyController;
+    @Mock
+    private ReminderSettingsController settingsController;
 
     private TelegramUpdateHandler handler;
 
     @BeforeEach
     void setUp() {
         handler = new TelegramUpdateHandler(client, registrationService,
-                new TelegramBotProperties(true, "dream_journal_agent", "test-token"), surveyController);
+                new TelegramBotProperties(true, "dream_journal_agent", "test-token"), surveyController, settingsController);
     }
 
     @Test
@@ -177,6 +180,45 @@ class TelegramUpdateHandlerTest {
         handler.handle(callback(42, "group"));
 
         verifyNoInteractions(client, registrationService, surveyController);
+    }
+
+    @Test
+    void settingsRegistersTheUserAndOpensReminderPreferences() {
+        handler.handle(message("/settings"));
+
+        verify(registrationService).register(any(TelegramProfile.class));
+        verify(settingsController).open(42, 42);
+        verifyNoInteractions(surveyController);
+    }
+
+    @Test
+    void settingsTextIsNotWrittenIntoTheSurvey() {
+        when(settingsController.text(42, 42, "08:30")).thenReturn(true);
+
+        handler.handle(message("08:30"));
+
+        verifyNoInteractions(surveyController);
+    }
+
+    @Test
+    void cancelDuringTimeInputLeavesTheQuestionnaireUntouched() {
+        when(settingsController.cancelInput(42)).thenReturn(true);
+
+        handler.handle(message("/cancel"));
+
+        verify(settingsController).open(42, 42);
+        verifyNoInteractions(surveyController);
+    }
+
+    @Test
+    void reminderSettingsCallbackUsesItsOwnController() {
+        Update update = callback(42, "private");
+        update.getCallbackQuery().setData("r:open");
+
+        handler.handle(update);
+
+        verify(settingsController).callback(42, 42, 10, "query-1", "r:open");
+        verifyNoInteractions(surveyController);
     }
 
     private SendMessage sentMessage() throws TelegramApiException {

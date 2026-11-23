@@ -12,6 +12,7 @@ import org.telegram.telegrambots.meta.api.methods.botapimethods.BotApiMethod;
 import org.telegram.telegrambots.meta.api.methods.send.SendMessage;
 import org.telegram.telegrambots.meta.api.methods.updatingmessages.EditMessageReplyMarkup;
 import org.telegram.telegrambots.meta.api.methods.updatingmessages.EditMessageText;
+import org.telegram.telegrambots.meta.api.objects.message.Message;
 import org.telegram.telegrambots.meta.exceptions.TelegramApiException;
 import org.telegram.telegrambots.meta.generics.TelegramClient;
 import ru.dreamjournal.diary.BedtimeState;
@@ -84,11 +85,12 @@ class SurveyTelegramControllerTest {
     }
 
     @Test
-    void nextQuestionIsSentAndOldButtonsAreRemoved() throws Exception {
+    void nextQuestionIsSentAndPreviousQuestionShowsTheSelectedAnswerWithoutButtons() throws Exception {
         SurveySession session = session(SurveyStep.QUALITY);
         String data = SurveyCallback.data(session, "v8");
+        var answers = session.answers().withQuality(8);
         when(service.action(42, data)).thenReturn(new SurveyResult.Draft(session.change(
-                SurveyStep.DURATION, session.answers().withQuality(8), false, false)));
+                SurveyStep.DURATION, answers, false, false), null, new SurveyResult.AnsweredQuestion(session, answers)));
 
         controller.callback(42, 42, 10, "query", data);
 
@@ -96,7 +98,49 @@ class SurveyTelegramControllerTest {
         verify(client).execute(argThat((BotApiMethod<?> method) -> method instanceof SendMessage message
                 && "HTML".equals(message.getParseMode())
                 && message.getText().contains("Отметь, сколько часов длился твой сон:")));
-        verify(client).execute(any(EditMessageReplyMarkup.class));
+        verify(client).execute(argThat((BotApiMethod<?> method) -> method instanceof EditMessageText edit
+                && edit.getMessageId() == 10 && "HTML".equals(edit.getParseMode())
+                && edit.getText().contains("Вопрос 1 из 7") && edit.getText().endsWith("<b>Твой ответ:</b>\n8")
+                && edit.getReplyMarkup().getKeyboard().isEmpty()));
+        verify(client, never()).execute(any(EditMessageReplyMarkup.class));
+    }
+
+    @Test
+    void textAnswerUpdatesThePersistedQuestionMessageAndRemembersTheNextPrompt() throws Exception {
+        SurveySession question = session(SurveyStep.ACTIVITIES).withPromptMessageId(10);
+        var answers = question.answers().withActivities("Читал <книгу> & слушал музыку");
+        SurveySession next = question.change(SurveyStep.MORNING_REST, answers, false, false);
+        when(service.answerText(42, "Читал <книгу> & слушал музыку")).thenReturn(new SurveyResult.Draft(next,
+                null, new SurveyResult.AnsweredQuestion(question, answers)));
+        Message delivered = new Message();
+        delivered.setMessageId(11);
+        doAnswer(call -> call.getArgument(0) instanceof SendMessage ? delivered : null)
+                .when(client).execute(ArgumentMatchers.<BotApiMethod<?>>any());
+
+        controller.text(42, 42, "Читал <книгу> & слушал музыку");
+
+        verify(client).execute(argThat((BotApiMethod<?> method) -> method instanceof EditMessageText edit
+                && edit.getMessageId() == 10 && edit.getText().contains("Вопрос 5 из 7")
+                && edit.getText().contains("Читал &lt;книгу&gt; &amp; слушал музыку")
+                && edit.getReplyMarkup().getKeyboard().isEmpty()));
+        verify(service).recordPrompt(next, 11);
+    }
+
+    @Test
+    void skippingTheLastQuestionShowsSkippedAndOpensReview() throws Exception {
+        SurveySession question = session(SurveyStep.COMMENT);
+        String data = SurveyCallback.data(question, "skip");
+        when(service.action(42, data)).thenReturn(new SurveyResult.Draft(question.change(
+                SurveyStep.REVIEW, question.answers(), false, false), null,
+                new SurveyResult.AnsweredQuestion(question, question.answers())));
+
+        controller.callback(42, 42, 10, "query", data);
+
+        verify(client).execute(argThat((BotApiMethod<?> method) -> method instanceof EditMessageText edit
+                && edit.getMessageId() == 10 && edit.getText().contains("Вопрос 7 из 7")
+                && edit.getText().contains("<b>Твой ответ:</b>\nПропущено")));
+        verify(client).execute(argThat((BotApiMethod<?> method) -> method instanceof SendMessage message
+                && message.getText().contains("Проверь ответы перед сохранением")));
     }
 
     @Test
@@ -122,8 +166,9 @@ class SurveyTelegramControllerTest {
     void failedDeliveryDoesNotRemoveThePreviousKeyboard() throws Exception {
         SurveySession session = session(SurveyStep.QUALITY);
         String data = SurveyCallback.data(session, "v8");
+        var answers = session.answers().withQuality(8);
         when(service.action(42, data)).thenReturn(new SurveyResult.Draft(session.change(
-                SurveyStep.DURATION, session.answers().withQuality(8), false, false)));
+                SurveyStep.DURATION, answers, false, false), null, new SurveyResult.AnsweredQuestion(session, answers)));
         doAnswer(call -> {
             if (call.getArgument(0) instanceof SendMessage) {
                 throw new TelegramApiException("unavailable");
@@ -134,6 +179,7 @@ class SurveyTelegramControllerTest {
         controller.callback(42, 42, 10, "query", data);
 
         verify(client, never()).execute(any(EditMessageReplyMarkup.class));
+        verify(client, never()).execute(any(EditMessageText.class));
     }
 
     @Test

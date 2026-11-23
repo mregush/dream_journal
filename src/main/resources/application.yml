@@ -14,6 +14,10 @@ spring:
 diary:
   default-time-zone: ${DIARY_DEFAULT_TIME_ZONE:Europe/Moscow}
 
+reminders:
+  enabled: ${REMINDERS_ENABLED:true}
+  poll-interval-ms: ${REMINDERS_POLL_INTERVAL_MS:30000}
+
 deployment:
   readiness-enabled: ${DEPLOYMENT_READINESS_ENABLED:false}
   readiness-file: ${DEPLOYMENT_READINESS_FILE:/tmp/dream-journal.ready}
