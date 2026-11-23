@@ -14,7 +14,7 @@ telegram:
   bot:
     enabled: ${TELEGRAM_BOT_ENABLED:true}
     username: ${TELEGRAM_BOT_USERNAME:dream_journal_agent}
-    token: ${TELEGRAM_BOT_TOKEN:9244866888:AAFtJvXrp2DWgBY7_xE_mtHb2Lwy-trqArk}
+    token: ${TELEGRAM_BOT_TOKEN:}
 
 # Bot API URLs contain the token. Do not enable HTTP wire logging.
 logging:
