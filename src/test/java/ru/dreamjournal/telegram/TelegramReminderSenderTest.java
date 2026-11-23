@@ -36,7 +36,7 @@ class TelegramReminderSenderTest {
         var captor = ArgumentCaptor.forClass(SendMessage.class);
         verify(client).execute(captor.capture());
         assertThat(captor.getValue().getChatId()).isEqualTo("42");
-        assertThat(captor.getValue().getText()).isEqualTo("— Привет, это я!\n\n<b>Как тебе сегодня спалось</b>?");
+        assertThat(captor.getValue().getText()).isEqualTo("— Привет, это я!\n<b>Как тебе сегодня спалось</b>?");
         assertThat(captor.getValue().getParseMode()).isEqualTo("HTML");
         assertThat(captor.getValue().getReplyMarkup()).isInstanceOfSatisfying(
                 org.telegram.telegrambots.meta.api.objects.replykeyboard.InlineKeyboardMarkup.class,
