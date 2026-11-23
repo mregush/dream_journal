@@ -7,6 +7,7 @@ import java.time.Clock;
 import java.time.LocalDate;
 import java.time.ZoneId;
 import java.time.format.DateTimeParseException;
+import java.time.format.DateTimeFormatter;
 import java.util.UUID;
 
 @Service
@@ -27,18 +28,37 @@ public class SurveyService {
 
     @Transactional
     public SurveyResult open(long userId) {
+        return openForDate(userId, null);
+    }
+
+    @Transactional
+    public SurveyResult openDate(long userId, LocalDate date) {
+        if (date == null || date.getYear() < 1 || date.getYear() > 9999) {
+            return new SurveyResult.Notice("Не удалось открыть дату. Выбери день в /calendar.");
+        }
+        return openForDate(userId, date);
+    }
+
+    private SurveyResult openForDate(long userId, LocalDate requested) {
         var user = repository.lockUser(userId);
         if (user.isEmpty()) {
             return new SurveyResult.Notice("Сначала подключись к дневнику: /start.");
         }
+        ZoneId zone = user.get().timeZone() == null ? defaultTimeZone : ZoneId.of(user.get().timeZone());
+        LocalDate today = LocalDate.now(clock.withZone(zone));
+        if (requested != null && requested.isAfter(today)) {
+            return new SurveyResult.Notice("Запись за будущую дату пока недоступна. Выбери сегодняшний или прошедший день.");
+        }
         var draft = repository.findSession(userId);
         if (draft.isPresent()) {
             var session = draft.get();
-            return persist(session.change(session.step(), session.answers(), session.returnToReview(), false));
+            var resumed = session.change(session.step(), session.answers(), session.returnToReview(), false);
+            repository.saveSession(resumed);
+            return new SurveyResult.Draft(resumed, requested != null && !requested.equals(session.entryDate())
+                    ? existingDraftHint(session) : null);
         }
 
-        ZoneId zone = user.get().timeZone() == null ? defaultTimeZone : ZoneId.of(user.get().timeZone());
-        LocalDate date = LocalDate.now(clock.withZone(zone));
+        LocalDate date = requested == null ? today : requested;
         var entry = repository.findEntry(userId, date);
         if (entry.isPresent()) {
             return new SurveyResult.Saved(entry.get(), false);
@@ -178,12 +198,20 @@ public class SurveyService {
         } catch (DateTimeParseException exception) {
             return new SurveyResult.Notice(STALE);
         }
+        if (date.getYear() < 1 || date.getYear() > 9999) {
+            return new SurveyResult.Notice(STALE);
+        }
+        var user = repository.findUser(userId).orElseThrow();
+        ZoneId zone = user.timeZone() == null ? defaultTimeZone : ZoneId.of(user.timeZone());
+        if (date.isAfter(LocalDate.now(clock.withZone(zone)))) {
+            return new SurveyResult.Notice("Запись за будущую дату пока недоступна.");
+        }
         var draft = repository.findSession(userId);
         if (draft.isPresent()) {
             var session = draft.get();
             var resumed = session.change(session.step(), session.answers(), session.returnToReview(), false);
             repository.saveSession(resumed);
-            return new SurveyResult.Draft(resumed, "Продолжим уже начатый черновик.");
+            return new SurveyResult.Draft(resumed, existingDraftHint(session));
         }
         return repository.findEntry(userId, date).<SurveyResult>map(entry -> persist(new SurveySession(
                 userId, UUID.randomUUID(), date, entry.timeZone(), SurveyStep.EDIT, 0, false, false, entry.answers())))
@@ -209,5 +237,10 @@ public class SurveyService {
 
     private SurveyResult invalid(SurveySession session, String hint) {
         return new SurveyResult.Draft(session, hint);
+    }
+
+    private String existingDraftHint(SurveySession session) {
+        return "Уже начата запись за " + session.entryDate().format(DateTimeFormatter.ofPattern("dd.MM.yyyy"))
+                + ". Сначала заверши её — ответы сохранены.";
     }
 }

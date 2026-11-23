@@ -138,6 +138,16 @@ class TelegramUpdateHandlerTest {
     }
 
     @Test
+    void calendarAndStatisticsCommandsRegisterTheUserAndOpenTheRequestedScreen() {
+        handler.handle(message("/calendar"));
+        handler.handle(message("/stats"));
+
+        verify(surveyController).calendar(42, 42);
+        verify(surveyController).statistics(42, 42);
+        verifyNoInteractions(client);
+    }
+
+    @Test
     void freeTextIncludingMentionsIsPassedToTheQuestionnaire() {
         handler.handle(message("@friend и я читали перед сном"));
 

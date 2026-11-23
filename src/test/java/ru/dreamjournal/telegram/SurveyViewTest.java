@@ -2,6 +2,7 @@ package ru.dreamjournal.telegram;
 
 import org.junit.jupiter.api.Test;
 import ru.dreamjournal.diary.BedtimeState;
+import ru.dreamjournal.diary.DiaryCallback;
 import ru.dreamjournal.diary.SleepAnswers;
 import ru.dreamjournal.diary.SleepDuration;
 import ru.dreamjournal.diary.SleepDurationRange;
@@ -35,7 +36,8 @@ class SurveyViewTest {
             assertThat(screen.text()).contains("23.11.2026", "Europe/Moscow");
             screen.keyboard().getKeyboard().forEach(row -> row.forEach(button -> {
                 assertThat(button.getCallbackData().getBytes(StandardCharsets.UTF_8).length).isLessThanOrEqualTo(64);
-                assertThat(SurveyCallback.parse(button.getCallbackData())).isPresent();
+                assertThat(SurveyCallback.parse(button.getCallbackData()).isPresent()
+                        || DiaryCallback.parse(button.getCallbackData()).isPresent()).isTrue();
             }));
         }
     }
@@ -48,7 +50,8 @@ class SurveyViewTest {
         var screen = view.render(new SurveyResult.Draft(session));
 
         assertThat(screen.keyboard().getKeyboard().stream().flatMap(java.util.Collection::stream)
-                .map(button -> button.getCallbackData().split(":")[3]).filter(action -> action.startsWith("v")))
+                .map(button -> SurveyCallback.parse(button.getCallbackData()))
+                .flatMap(java.util.Optional::stream).map(SurveyCallback::action).filter(action -> action.startsWith("v")))
                 .containsExactly("v0", "v1", "v2", "v3", "v4", "v5", "v6", "v7", "v8", "v9", "v10");
     }
 
@@ -69,7 +72,8 @@ class SurveyViewTest {
 
         assertThat(screen.text()).contains("Отметь, сколько часов длился твой сон:").doesNotContain("Напиши");
         assertThat(screen.keyboard().getKeyboard().stream().flatMap(java.util.Collection::stream)
-                .filter(button -> SurveyCallback.parse(button.getCallbackData()).orElseThrow().action().startsWith("d"))
+                .filter(button -> SurveyCallback.parse(button.getCallbackData())
+                        .map(callback -> callback.action().startsWith("d")).orElse(false))
                 .map(button -> button.getText()))
                 .containsExactly("0", "1–2", "2–3", "3–4", "4–5", "5–6", "6–7", "7–8", "8–9", "9–10", "10–12", "12+");
         var review = session.change(SurveyStep.REVIEW, session.answers().withDuration(SleepDurationRange.TWELVE_PLUS),

@@ -14,7 +14,10 @@ import ru.dreamjournal.diary.SurveyCallback;
 import ru.dreamjournal.diary.SurveyResult;
 import ru.dreamjournal.diary.SurveyService;
 import ru.dreamjournal.diary.SurveyStep;
+import ru.dreamjournal.diary.DiaryCallback;
+import ru.dreamjournal.diary.DiaryService;
 
+import java.time.YearMonth;
 import java.util.List;
 import java.util.function.Supplier;
 
@@ -24,12 +27,14 @@ public class SurveyTelegramController {
 
     private final TelegramClient client;
     private final SurveyService service;
-    private final SurveyView view;
+    private final DiaryService diaryService;
+    private final DiaryView view;
 
-    public SurveyTelegramController(TelegramClient client, SurveyService service, SurveyView view) {
+    public SurveyTelegramController(TelegramClient client, SurveyService service, DiaryService diaryService, SurveyView view) {
         this.client = client;
         this.service = service;
-        this.view = view;
+        this.diaryService = diaryService;
+        this.view = new DiaryView(view);
     }
 
     public void open(long userId, long chatId) {
@@ -44,14 +49,35 @@ public class SurveyTelegramController {
         send(chatId, perform(() -> service.pause(userId)));
     }
 
+    public void calendar(long userId, long chatId) {
+        send(chatId, perform(() -> diaryService.calendar(userId, null)));
+    }
+
+    public void statistics(long userId, long chatId) {
+        send(chatId, perform(() -> diaryService.statistics(userId, null)));
+    }
+
     public void callback(long userId, long chatId, int messageId, String queryId, String data) {
-        SurveyResult result = perform(() -> service.action(userId, data));
+        var navigation = DiaryCallback.parse(data);
+        if (navigation.isPresent() && navigation.get().action() == DiaryCallback.Action.NOOP) {
+            acknowledge(queryId, null);
+            return;
+        }
+        SurveyResult result = perform(() -> navigation.isEmpty() ? service.action(userId, data)
+                : switch (navigation.get().action()) {
+                    case CALENDAR -> diaryService.calendar(userId, YearMonth.from(navigation.get().date()));
+                    case STATISTICS -> diaryService.statistics(userId, YearMonth.from(navigation.get().date()));
+                    case DAY -> diaryService.day(userId, navigation.get().date());
+                    case ADD -> service.openDate(userId, navigation.get().date());
+                    case NOOP -> throw new IllegalStateException("Non-interactive calendar cell");
+                });
         acknowledge(queryId, result instanceof SurveyResult.Notice notice ? notice.text() : null);
         if (result instanceof SurveyResult.Notice) {
             return;
         }
         var callback = SurveyCallback.parse(data);
-        boolean updateInPlace = result instanceof SurveyResult.Draft draft && callback.isPresent()
+        boolean updateInPlace = (navigation.isPresent() && navigation.get().action() != DiaryCallback.Action.ADD)
+                || result instanceof SurveyResult.Draft draft && callback.isPresent()
                 && (draft.session().revision() == callback.get().revision()
                 || (draft.session().step() == SurveyStep.BEDTIME_STATES && callback.get().action().startsWith("state")));
         if (updateInPlace && edit(chatId, messageId, result)) {
@@ -67,7 +93,7 @@ public class SurveyTelegramController {
             return operation.get();
         } catch (DataAccessException exception) {
             log.error("Diary operation failed ({})", exception.getClass().getSimpleName());
-            return new SurveyResult.Notice("Не удалось сохранить изменения. Попробуй продолжить через /diary.");
+            return new SurveyResult.Notice("Не удалось выполнить действие. Попробуй ещё раз через /diary или /calendar.");
         }
     }
 

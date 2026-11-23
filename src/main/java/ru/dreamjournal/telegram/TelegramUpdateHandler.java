@@ -19,6 +19,8 @@ public class TelegramUpdateHandler {
             Привет! Я помогу вести дневник сна 🌙
 
             /diary — сделать запись или продолжить черновик.
+            /calendar — календарь дневника.
+            /stats — статистика месяца.
 
             /help — доступные команды.
             """;
@@ -27,11 +29,13 @@ public class TelegramUpdateHandler {
 
             /start — подключиться к дневнику
             /diary — сделать запись или продолжить черновик
+            /calendar — календарь, просмотр и заполнение прошлых дней
+            /stats — статистика месяца
             /cancel — отложить опрос, сохранив ответы
             /help — показать справку
 
             После семи вопросов можно проверить, исправить и сохранить запись.
-            Календарь и настройка напоминаний пока готовятся.
+            Настройка ежедневных напоминаний пока готовится.
             """;
 
     private final TelegramClient client;
@@ -90,6 +94,16 @@ public class TelegramUpdateHandler {
                 }
             }
             case "/cancel" -> surveyController.pause(message.getFrom().getId(), message.getChatId());
+            case "/calendar" -> {
+                if (register(message)) {
+                    surveyController.calendar(message.getFrom().getId(), message.getChatId());
+                }
+            }
+            case "/stats" -> {
+                if (register(message)) {
+                    surveyController.statistics(message.getFrom().getId(), message.getChatId());
+                }
+            }
             case "/help" -> reply(message.getChatId(), HELP);
             default -> reply(message.getChatId(), "Доступные команды — /help. Начать знакомство — /start.");
         }

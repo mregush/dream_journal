@@ -7,9 +7,12 @@ import org.springframework.stereotype.Repository;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.time.LocalDate;
+import java.time.Instant;
+import java.time.YearMonth;
 import java.util.Arrays;
 import java.util.EnumSet;
 import java.util.Optional;
+import java.util.List;
 import java.util.UUID;
 import java.util.stream.Collectors;
 
@@ -33,9 +36,15 @@ public class SurveyRepository {
 
     // Lock the parent row to serialize session creation, edits and saves for the same user.
     public Optional<UserSettings> lockUser(long userId) {
-        return jdbc.sql("SELECT time_zone FROM bot_users WHERE telegram_user_id = :userId FOR UPDATE")
+        return jdbc.sql("SELECT time_zone, created_at FROM bot_users WHERE telegram_user_id = :userId FOR UPDATE")
                 .param("userId", userId)
-                .query((rs, row) -> new UserSettings(rs.getString("time_zone"))).optional();
+                .query((rs, row) -> new UserSettings(rs.getString("time_zone"), rs.getTimestamp("created_at").toInstant())).optional();
+    }
+
+    public Optional<UserSettings> findUser(long userId) {
+        return jdbc.sql("SELECT time_zone, created_at FROM bot_users WHERE telegram_user_id = :userId")
+                .param("userId", userId)
+                .query((rs, row) -> new UserSettings(rs.getString("time_zone"), rs.getTimestamp("created_at").toInstant())).optional();
     }
 
     public Optional<SurveySession> findSession(long userId) {
@@ -46,6 +55,15 @@ public class SurveyRepository {
     public Optional<SleepEntry> findEntry(long userId, LocalDate date) {
         return jdbc.sql("SELECT * FROM sleep_entries WHERE telegram_user_id = :userId AND entry_date = :date")
                 .param("userId", userId).param("date", date).query(ENTRY_MAPPER).optional();
+    }
+
+    public List<SleepEntry> findEntries(long userId, YearMonth month) {
+        return jdbc.sql("""
+                SELECT * FROM sleep_entries
+                WHERE telegram_user_id = :userId AND entry_date >= :start AND entry_date <= :end
+                ORDER BY entry_date
+                """).param("userId", userId).param("start", month.atDay(1)).param("end", month.atEndOfMonth())
+                .query(ENTRY_MAPPER).list();
     }
 
     public void saveSession(SurveySession session) {
@@ -123,6 +141,6 @@ public class SurveyRepository {
                 rs.getString("comment"));
     }
 
-    public record UserSettings(String timeZone) {
+    public record UserSettings(String timeZone, Instant registeredAt) {
     }
 }

@@ -13,4 +13,13 @@ public sealed interface SurveyResult {
 
     record Notice(String text) implements SurveyResult {
     }
+
+    record Calendar(DiaryMonth period) implements SurveyResult {
+    }
+
+    record Day(DiaryDay day) implements SurveyResult {
+    }
+
+    record Statistics(MonthlyStatistics statistics) implements SurveyResult {
+    }
 }

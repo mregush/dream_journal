@@ -14,6 +14,7 @@ import org.telegram.telegrambots.meta.api.objects.commands.BotCommand;
 import org.telegram.telegrambots.meta.exceptions.TelegramApiException;
 import org.telegram.telegrambots.meta.generics.TelegramClient;
 import ru.dreamjournal.diary.SurveyService;
+import ru.dreamjournal.diary.DiaryService;
 import ru.dreamjournal.user.UserRegistrationService;
 
 import java.util.List;
@@ -43,8 +44,8 @@ public class TelegramConfiguration {
     }
 
     @Bean
-    SurveyTelegramController surveyTelegramController(TelegramClient client, SurveyService surveyService) {
-        return new SurveyTelegramController(client, surveyService, new SurveyView());
+    SurveyTelegramController surveyTelegramController(TelegramClient client, SurveyService surveyService, DiaryService diaryService) {
+        return new SurveyTelegramController(client, surveyService, diaryService, new SurveyView());
     }
 
     @Bean
@@ -71,6 +72,8 @@ public class TelegramConfiguration {
                 client.execute(SetMyCommands.builder().commands(List.of(
                         new BotCommand("start", "Подключиться к дневнику"),
                         new BotCommand("diary", "Запись в дневник"),
+                        new BotCommand("calendar", "Календарь дневника"),
+                        new BotCommand("stats", "Статистика месяца"),
                         new BotCommand("cancel", "Отложить опрос и сохранить черновик"),
                         new BotCommand("help", "Помощь")
                 )).build());

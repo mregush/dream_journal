@@ -12,6 +12,7 @@ import ru.dreamjournal.diary.SurveySession;
 import ru.dreamjournal.diary.SurveyStep;
 
 import java.time.LocalDate;
+import java.time.YearMonth;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.List;
@@ -26,12 +27,17 @@ public class SurveyView {
             case SurveyResult.Draft draft -> draft(draft);
             case SurveyResult.Saved saved -> new Screen(
                     (saved.justSaved() ? "✅ Запись сохранена!\n\n" : "За этот день уже есть запись.\n\n")
-                            + header(saved.entry().entryDate(), saved.entry().timeZone())
-                            + summary(saved.entry().answers()),
-                    InlineKeyboardMarkup.builder().keyboard(List.of(new InlineKeyboardRow(
-                            button("Изменить", "e:" + saved.entry().entryDate() + ":edit")))).build());
+                            + entryText(saved.entry()),
+                    InlineKeyboardMarkup.builder().keyboard(List.of(
+                            new InlineKeyboardRow(button("Изменить", "e:" + saved.entry().entryDate() + ":edit")),
+                            navigation(saved.entry().entryDate()))).build());
             case SurveyResult.Notice notice -> new Screen(notice.text(), null);
+            default -> throw new IllegalArgumentException("Use DiaryView for calendar and statistics screens");
         };
+    }
+
+    public String entryText(ru.dreamjournal.diary.SleepEntry entry) {
+        return header(entry.entryDate(), entry.timeZone()) + summary(entry.answers());
     }
 
     private Screen draft(SurveyResult.Draft draft) {
@@ -110,7 +116,13 @@ public class SurveyView {
         }
         navigation.add(action(session, "Отложить", "pause"));
         rows.add(navigation);
+        rows.add(new InlineKeyboardRow(button("Календарь", "c:" + YearMonth.from(session.entryDate()))));
         return new Screen(text, InlineKeyboardMarkup.builder().keyboard(rows).build());
+    }
+
+    private InlineKeyboardRow navigation(LocalDate date) {
+        YearMonth month = YearMonth.from(date);
+        return new InlineKeyboardRow(button("Календарь", "c:" + month), button("Статистика", "t:" + month));
     }
 
     private String header(LocalDate date, String timeZone) {
