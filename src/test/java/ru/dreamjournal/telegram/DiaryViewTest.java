@@ -172,6 +172,24 @@ class DiaryViewTest {
     }
 
     @Test
+    void statisticsCountCustomStatesAsOtherNightsAlongsideThePresetStates() {
+        var first = entry(today, SleepDuration.selected(SleepDurationRange.SEVEN_TO_EIGHT));
+        var second = new SleepEntry(42, today.minusDays(1), "Europe/Moscow",
+                new SleepAnswers(8, SleepDuration.selected(SleepDurationRange.SEVEN_TO_EIGHT), 0,
+                        java.util.Set.of(), null, 8, null).withOtherBedtimeState("Предвкушение"));
+        var third = new SleepEntry(42, today.minusDays(2), "Europe/Moscow",
+                new SleepAnswers(8, SleepDuration.selected(SleepDurationRange.SEVEN_TO_EIGHT), 0,
+                        java.util.Set.of(BedtimeState.ANXIOUS), null, 8, null).withOtherBedtimeState("Вдохновение"));
+        var stats = MonthlyStatistics.calculate(period(YearMonth.from(today), List.of(first, second, third), null));
+
+        var text = view.render(new SurveyResult.Statistics(stats)).text();
+
+        assertThat(stats.otherStateNights()).isEqualTo(2);
+        assertThat(text).contains("Другое — <b>2 ночи</b>", "Тревога — <b>2 ночи</b>");
+        assertThat(text).doesNotContain("Предвкушение", "Вдохновение");
+    }
+
+    @Test
     void callbackParserRejectsInvalidDatesAndNonCanonicalPayloads() {
         for (String data : new String[]{"day:2026-02-30", "c:2026-13", "add:0000-01-01", "t:+10000-01",
                 "day:2026-11-01:42", "c:2026-11:extra", "a".repeat(65)}) {

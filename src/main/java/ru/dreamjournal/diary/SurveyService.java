@@ -52,7 +52,10 @@ public class SurveyService {
         var draft = repository.findSession(userId);
         if (draft.isPresent()) {
             var session = draft.get();
-            var resumed = session.change(session.step(), session.answers(), session.returnToReview(), false);
+            if (session.step() == SurveyStep.REVIEW) {
+                return save(session, session.answers(), null);
+            }
+            var resumed = session.change(session.step(), session.answers(), session.editing(), false);
             repository.saveSession(resumed);
             return new SurveyResult.Draft(resumed, requested != null && !requested.equals(session.entryDate())
                     ? existingDraftHint(session) : null);
@@ -78,12 +81,24 @@ public class SurveyService {
         }
         var session = draft.get();
         String value = text.strip();
-        if (session.step() == SurveyStep.ACTIVITIES || session.step() == SurveyStep.COMMENT) {
+        if (session.step().supportsOtherText() && session.awaitingOtherText()) {
+            int limit = session.step() == SurveyStep.BEDTIME_STATES ? BedtimeState.OTHER_TEXT_MAX_LENGTH : 1000;
+            if (value.isBlank() || value.length() > limit) {
+                return invalid(session, "Напиши от 1 до " + limit + " символов или нажми «Назад», чтобы вернуться к выбору.");
+            }
+            var answers = session.step() == SurveyStep.BEDTIME_STATES
+                    ? session.answers().withOtherBedtimeState(value) : session.answers().withActivities(value);
+            return persist(session.change(session.step(), answers, session.editing(), false).withOtherText(false));
+        }
+        if (session.step() == SurveyStep.DREAMS || session.step() == SurveyStep.COMMENT) {
             if (value.isBlank() || value.length() > 1000) {
                 return invalid(session, "Напиши от 1 до 1000 символов или нажми «Пропустить».");
             }
-            return advance(session, session.step() == SurveyStep.ACTIVITIES
-                    ? session.answers().withActivities(value) : session.answers().withComment(value));
+            return advance(session, session.step() == SurveyStep.DREAMS
+                    ? session.answers().withDreams(value) : session.answers().withComment(value));
+        }
+        if (session.step().supportsOtherText()) {
+            return invalid(session, "Выбери варианты кнопками. Чтобы написать свой вариант, нажми «Другое».");
         }
         return invalid(session, "Для этого шага выбери ответ кнопкой под вопросом.");
     }
@@ -107,29 +122,31 @@ public class SurveyService {
             return new SurveyResult.Notice(STALE);
         }
         String action = input.action();
+        if (session.step() == SurveyStep.REVIEW) {
+            return save(session, session.answers(), null);
+        }
         if (action.equals("pause")) {
             return pauseSession(session);
         }
         if (action.equals("back")) {
-            SurveyStep previous = session.returnToReview() ? SurveyStep.EDIT
-                    : session.step() == SurveyStep.EDIT ? SurveyStep.REVIEW
+            if (session.step().supportsOtherText() && session.awaitingOtherText()) {
+                return persist(session.change(session.step(), session.answers(), session.editing(), false).withOtherText(false));
+            }
+            if (session.step() == SurveyStep.EDIT) {
+                repository.deleteSession(userId);
+                return repository.findEntry(userId, session.entryDate()).<SurveyResult>map(entry -> new SurveyResult.Saved(entry, false))
+                        .orElseGet(() -> new SurveyResult.Notice(NO_DRAFT));
+            }
+            SurveyStep previous = session.editing() ? SurveyStep.EDIT
                     : SurveyStep.values()[Math.max(0, session.step().ordinal() - 1)];
             return persist(session.change(previous, session.answers(), false, false));
         }
-        if (action.equals("edit") && session.step() == SurveyStep.REVIEW) {
-            return persist(session.change(SurveyStep.EDIT, session.answers(), false, false));
-        }
-        if (action.matches("edit[0-6]") && session.step() == SurveyStep.EDIT) {
+        if (action.matches("edit[0-7]") && session.step() == SurveyStep.EDIT) {
             var step = SurveyStep.values()[action.charAt(4) - '0'];
             return persist(session.change(step, session.answers(), true, false));
         }
-        if (action.equals("save") && session.step() == SurveyStep.REVIEW && session.answers().isComplete()) {
-            var entry = new SleepEntry(userId, session.entryDate(), session.timeZone(), session.answers());
-            repository.saveEntry(entry);
-            repository.deleteSession(userId);
-            return new SurveyResult.Saved(entry, true);
-        }
-        if (action.equals("keep") && ((session.step() == SurveyStep.ACTIVITIES && session.answers().activities() != null)
+        if (action.equals("keep") && ((session.step() == SurveyStep.ACTIVITIES && session.answers().activitiesSummary() != null)
+                || (session.step() == SurveyStep.DREAMS && session.answers().dreams() != null)
                 || (session.step() == SurveyStep.COMMENT && session.answers().comment() != null))) {
             return advance(session, session.answers());
         }
@@ -139,20 +156,44 @@ public class SurveyService {
         }
         if (action.equals("skip")) {
             if (session.step() == SurveyStep.ACTIVITIES) {
-                return advance(session, session.answers().withActivities(null));
+                return advance(session, session.answers().withoutActivities());
+            }
+            if (session.step() == SurveyStep.DREAMS) {
+                return advance(session, session.answers().withDreams(null));
             }
             if (session.step() == SurveyStep.COMMENT) {
                 return advance(session, session.answers().withComment(null));
             }
         }
+        if (session.step().supportsOtherText()) {
+            if (action.equals("other")) {
+                return persist(session.change(session.step(), session.answers(), session.editing(), false).withOtherText(true));
+            }
+            if (action.equals("clearother")) {
+                var answers = session.step() == SurveyStep.BEDTIME_STATES
+                        ? session.answers().withOtherBedtimeState(null) : session.answers().withActivities(null);
+                return persist(session.change(session.step(), answers, session.editing(), false).withOtherText(false));
+            }
+        }
         if (session.step() == SurveyStep.BEDTIME_STATES) {
-            if (action.matches("state[0-3]")) {
+            if (action.matches("state[0-8]")) {
                 var answers = session.answers().toggle(BedtimeState.values()[action.charAt(5) - '0']);
-                return persist(session.change(session.step(), answers, session.returnToReview(), false));
+                return persist(session.change(session.step(), answers, session.editing(), false));
             }
             if (action.equals("done")) {
-                return session.answers().bedtimeStates().isEmpty()
-                        ? invalid(session, "Выбери хотя бы одно состояние, затем нажми «Готово».")
+                return !session.answers().hasBedtimeState()
+                        ? invalid(session, "Выбери хотя бы одно состояние или добавь свой вариант через «Другое», затем нажми «Готово».")
+                        : advance(session, session.answers());
+            }
+        }
+        if (session.step() == SurveyStep.ACTIVITIES) {
+            if (action.matches("activity[0-6]")) {
+                var answers = session.answers().toggleActivity(BedtimeActivity.values()[action.charAt(8) - '0']);
+                return persist(session.change(session.step(), answers, session.editing(), false));
+            }
+            if (action.equals("done")) {
+                return session.answers().activitiesSummary() == null
+                        ? invalid(session, "Выбери хотя бы одно занятие, добавь свой вариант через «Другое» или пропусти вопрос.")
                         : advance(session, session.answers());
             }
         }
@@ -216,7 +257,10 @@ public class SurveyService {
         var draft = repository.findSession(userId);
         if (draft.isPresent()) {
             var session = draft.get();
-            var resumed = session.change(session.step(), session.answers(), session.returnToReview(), false);
+            if (session.step() == SurveyStep.REVIEW) {
+                return save(session, session.answers(), null);
+            }
+            var resumed = session.change(session.step(), session.answers(), session.editing(), false);
             repository.saveSession(resumed);
             return new SurveyResult.Draft(resumed, existingDraftHint(session));
         }
@@ -226,10 +270,24 @@ public class SurveyService {
     }
 
     private SurveyResult advance(SurveySession session, SleepAnswers answers) {
-        SurveyStep next = session.returnToReview() ? SurveyStep.REVIEW : SurveyStep.values()[session.step().ordinal() + 1];
+        var answered = new SurveyResult.AnsweredQuestion(session, answers);
+        if (session.editing() || session.step() == SurveyStep.COMMENT) {
+            return save(session, answers, answered);
+        }
+        SurveyStep next = SurveyStep.values()[session.step().ordinal() + 1];
         SurveySession updated = session.change(next, answers, false, false);
         repository.saveSession(updated);
-        return new SurveyResult.Draft(updated, null, new SurveyResult.AnsweredQuestion(session, answers));
+        return new SurveyResult.Draft(updated, null, answered);
+    }
+
+    private SurveyResult save(SurveySession session, SleepAnswers answers, SurveyResult.AnsweredQuestion answered) {
+        if (!answers.isComplete()) {
+            return invalid(session, "В записи не хватает обязательных ответов. Вернись к незаполненным вопросам.");
+        }
+        var entry = new SleepEntry(session.userId(), session.entryDate(), session.timeZone(), answers);
+        repository.saveEntry(entry);
+        repository.deleteSession(session.userId());
+        return new SurveyResult.Saved(entry, true, answered);
     }
 
     private SurveyResult.Draft persist(SurveySession session) {
@@ -238,7 +296,7 @@ public class SurveyService {
     }
 
     private SurveyResult pauseSession(SurveySession session) {
-        repository.saveSession(session.change(session.step(), session.answers(), session.returnToReview(), true));
+        repository.saveSession(session.change(session.step(), session.answers(), session.editing(), true));
         return new SurveyResult.Notice("Опрос отложен, черновик сохранён. Продолжить — /diary.");
     }
 

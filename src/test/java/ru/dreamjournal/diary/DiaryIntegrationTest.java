@@ -85,7 +85,7 @@ class DiaryIntegrationTest {
         session = click(session, "v9");
         session = click(session, "skip");
 
-        assertThat(survey.action(42, SurveyCallback.data(session, "save"))).isInstanceOf(SurveyResult.Saved.class);
+        assertThat(survey.action(42, SurveyCallback.data(session, "skip"))).isInstanceOf(SurveyResult.Saved.class);
 
         var day = day(diary.day(42, date("2026-10-25")));
         assertThat(day.entry().entryDate()).isEqualTo(date("2026-10-25"));
@@ -177,12 +177,11 @@ class DiaryIntegrationTest {
     }
 
     @Test
-    void editingIsNotCountedTwiceAndStatisticsChangeOnlyAfterConfirmation() {
+    void editingIsNotCountedTwiceAndStatisticsChangeAfterTheAnswerIsAccepted() {
         save(42, "2026-11-05", 8, SleepDuration.selected(SleepDurationRange.SEVEN_TO_EIGHT), 0, 9,
                 Set.of(BedtimeState.RELAXED));
         var edit = draft(survey.action(42, "e:2026-11-05:edit"));
         edit = click(edit, "edit0");
-        edit = click(edit, "v3");
 
         var before = stats(diary.statistics(42, NOVEMBER));
         assertThat(before.averageQuality()).isEqualTo(8.0);
@@ -194,7 +193,7 @@ class DiaryIntegrationTest {
         assertThat(repository.findSession(42)).contains(edit);
         assertThat(day(diary.day(42, date("2026-11-05"))).entry().answers().quality()).isEqualTo(8);
 
-        survey.action(42, SurveyCallback.data(edit, "save"));
+        assertThat(survey.action(42, SurveyCallback.data(edit, "v3"))).isInstanceOf(SurveyResult.Saved.class);
 
         var after = stats(diary.statistics(42, NOVEMBER));
         assertThat(after.averageQuality()).isEqualTo(3.0);

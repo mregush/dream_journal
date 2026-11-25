@@ -45,6 +45,10 @@ public class SurveyTelegramController {
 
     public void text(long userId, long chatId, String text) {
         SurveyResult result = perform(() -> service.answerText(userId, text));
+        if (result instanceof SurveyResult.Draft draft && draft.session().step().supportsOtherText()
+                && draft.session().promptMessageId() != null && edit(chatId, draft.session().promptMessageId(), result)) {
+            return;
+        }
         if (send(chatId, result)) {
             completePreviousQuestion(chatId, result, null);
         }
@@ -85,7 +89,10 @@ public class SurveyTelegramController {
         boolean updateInPlace = (navigation.isPresent() && navigation.get().action() != DiaryCallback.Action.ADD)
                 || result instanceof SurveyResult.Draft draft && callback.isPresent()
                 && (draft.session().revision() == callback.get().revision()
-                || (draft.session().step() == SurveyStep.BEDTIME_STATES && callback.get().action().startsWith("state")));
+                || (draft.session().step() == SurveyStep.BEDTIME_STATES && callback.get().action().startsWith("state"))
+                || (draft.session().step() == SurveyStep.ACTIVITIES && callback.get().action().startsWith("activity"))
+                || (draft.session().step().supportsOtherText()
+                    && (callback.get().action().equals("other") || callback.get().action().equals("clearother"))));
         if (updateInPlace && edit(chatId, messageId, result)) {
             return;
         }
@@ -152,10 +159,10 @@ public class SurveyTelegramController {
     }
 
     private boolean completePreviousQuestion(long chatId, SurveyResult result, Integer callbackMessageId) {
-        if (!(result instanceof SurveyResult.Draft draft) || draft.answeredQuestion() == null) {
+        if (result.answeredQuestion() == null) {
             return false;
         }
-        var answered = draft.answeredQuestion();
+        var answered = result.answeredQuestion();
         Integer messageId = callbackMessageId != null ? callbackMessageId : answered.question().promptMessageId();
         if (messageId == null) {
             return false;

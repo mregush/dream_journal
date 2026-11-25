@@ -2,6 +2,8 @@ package ru.dreamjournal.telegram;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.EnumSource;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.ArgumentMatchers;
@@ -19,6 +21,8 @@ import ru.dreamjournal.diary.BedtimeState;
 import ru.dreamjournal.diary.DiaryService;
 import ru.dreamjournal.diary.DiaryMonth;
 import ru.dreamjournal.diary.SleepAnswers;
+import ru.dreamjournal.diary.SleepEntry;
+import ru.dreamjournal.diary.BedtimeActivity;
 import ru.dreamjournal.diary.SurveyCallback;
 import ru.dreamjournal.diary.SurveyResult;
 import ru.dreamjournal.diary.SurveyService;
@@ -100,16 +104,16 @@ class SurveyTelegramControllerTest {
                 && message.getText().contains("Отметь, сколько часов длился твой сон:")));
         verify(client).execute(argThat((BotApiMethod<?> method) -> method instanceof EditMessageText edit
                 && edit.getMessageId() == 10 && "HTML".equals(edit.getParseMode())
-                && edit.getText().contains("Вопрос 1 из 7") && edit.getText().endsWith("<b>Твой ответ:</b>\n8")
+                && edit.getText().contains("Как оцениваешь качество сна?") && edit.getText().endsWith("<b>Твой ответ:</b>\n8")
                 && edit.getReplyMarkup().getKeyboard().isEmpty()));
         verify(client, never()).execute(any(EditMessageReplyMarkup.class));
     }
 
     @Test
     void textAnswerUpdatesThePersistedQuestionMessageAndRemembersTheNextPrompt() throws Exception {
-        SurveySession question = session(SurveyStep.ACTIVITIES).withPromptMessageId(10);
-        var answers = question.answers().withActivities("Читал <книгу> & слушал музыку");
-        SurveySession next = question.change(SurveyStep.MORNING_REST, answers, false, false);
+        SurveySession question = session(SurveyStep.DREAMS).withPromptMessageId(10);
+        var answers = question.answers().withDreams("Читал <книгу> & слушал музыку");
+        SurveySession next = question.change(SurveyStep.COMMENT, answers, false, false);
         when(service.answerText(42, "Читал <книгу> & слушал музыку")).thenReturn(new SurveyResult.Draft(next,
                 null, new SurveyResult.AnsweredQuestion(question, answers)));
         Message delivered = new Message();
@@ -120,27 +124,27 @@ class SurveyTelegramControllerTest {
         controller.text(42, 42, "Читал <книгу> & слушал музыку");
 
         verify(client).execute(argThat((BotApiMethod<?> method) -> method instanceof EditMessageText edit
-                && edit.getMessageId() == 10 && edit.getText().contains("Вопрос 5 из 7")
+                && edit.getMessageId() == 10 && edit.getText().contains("Что тебе снилось?")
                 && edit.getText().contains("Читал &lt;книгу&gt; &amp; слушал музыку")
                 && edit.getReplyMarkup().getKeyboard().isEmpty()));
         verify(service).recordPrompt(next, 11);
     }
 
     @Test
-    void skippingTheLastQuestionShowsSkippedAndOpensReview() throws Exception {
+    void skippingTheLastQuestionShowsSkippedAndTheAutomaticallySavedEntry() throws Exception {
         SurveySession question = session(SurveyStep.COMMENT);
         String data = SurveyCallback.data(question, "skip");
-        when(service.action(42, data)).thenReturn(new SurveyResult.Draft(question.change(
-                SurveyStep.REVIEW, question.answers(), false, false), null,
+        when(service.action(42, data)).thenReturn(new SurveyResult.Saved(new SleepEntry(42,
+                question.entryDate(), question.timeZone(), question.answers()), true,
                 new SurveyResult.AnsweredQuestion(question, question.answers())));
 
         controller.callback(42, 42, 10, "query", data);
 
         verify(client).execute(argThat((BotApiMethod<?> method) -> method instanceof EditMessageText edit
-                && edit.getMessageId() == 10 && edit.getText().contains("Вопрос 7 из 7")
+                && edit.getMessageId() == 10 && edit.getText().contains("Хочешь добавить комментарий к записи?")
                 && edit.getText().contains("<b>Твой ответ:</b>\nПропущено")));
         verify(client).execute(argThat((BotApiMethod<?> method) -> method instanceof SendMessage message
-                && message.getText().contains("Проверь ответы перед сохранением")));
+                && message.getText().contains("✅ Запись сохранена")));
     }
 
     @Test
@@ -227,8 +231,57 @@ class SurveyTelegramControllerTest {
 
         verify(service).openDate(42, date);
         verify(client).execute(argThat((BotApiMethod<?> method) -> method instanceof SendMessage message
-                && message.getText().contains("25.10.2026") && message.getText().contains("Вопрос 1 из 7")));
+                && message.getText().contains("25.10.2026") && message.getText().contains("Как оцениваешь качество сна?")));
         verifyNoInteractions(diaryService);
+    }
+
+    @ParameterizedTest
+    @EnumSource(value = SurveyStep.class, names = {"ACTIVITIES", "BEDTIME_STATES"})
+    void customTextUpdatesTheSameQuestionUntilDoneIsPressed(SurveyStep step) throws Exception {
+        var question = session(step).withPromptMessageId(10).withOtherText(true);
+        var answers = step == SurveyStep.BEDTIME_STATES ? question.answers().withOtherBedtimeState("Читал <книгу>")
+                : question.answers().withActivities("Читал <книгу>");
+        var answered = question.change(step, answers, false, false)
+                .withOtherText(false);
+        when(service.answerText(42, "Читал <книгу>")).thenReturn(new SurveyResult.Draft(answered));
+
+        controller.text(42, 42, "Читал <книгу>");
+
+        verify(client).execute(argThat((BotApiMethod<?> method) -> method instanceof EditMessageText edit
+                && edit.getMessageId() == 10 && edit.getText().contains("Читал &lt;книгу&gt;")
+                && edit.getText().contains(step == SurveyStep.BEDTIME_STATES
+                    ? "Какое состояние было перед сном?" : "Как прошёл твой вечер перед сном?")));
+        verify(client, never()).execute(any(SendMessage.class));
+        verify(service).recordPrompt(answered, 10);
+    }
+
+    @ParameterizedTest
+    @EnumSource(value = SurveyStep.class, names = {"ACTIVITIES", "BEDTIME_STATES"})
+    void otherButtonEditsTheSameQuestionToShowInputInstructions(SurveyStep step) throws Exception {
+        var question = session(step);
+        String data = SurveyCallback.data(question, "other");
+        when(service.action(42, data)).thenReturn(new SurveyResult.Draft(question.change(step, question.answers(), false, false)
+                .withOtherText(true)));
+
+        controller.callback(42, 42, 10, "query", data);
+
+        verify(client).execute(argThat((BotApiMethod<?> method) -> method instanceof EditMessageText edit
+                && edit.getMessageId() == 10 && edit.getText().contains("Напиши свой вариант в чат")));
+        verify(client, never()).execute(any(SendMessage.class));
+    }
+
+    @Test
+    void selectingAnActivityUpdatesTheExistingKeyboard() throws Exception {
+        var question = session(SurveyStep.ACTIVITIES);
+        String data = SurveyCallback.data(question, "activity0");
+        when(service.action(42, data)).thenReturn(new SurveyResult.Draft(question.change(question.step(),
+                question.answers().toggleActivity(BedtimeActivity.READING), false, false)));
+
+        controller.callback(42, 42, 10, "query", data);
+
+        verify(client).execute(argThat((BotApiMethod<?> method) -> method instanceof EditMessageText edit
+                && edit.getReplyMarkup().getKeyboard().getFirst().getFirst().getText().equals("✅ Чтение")));
+        verify(client, never()).execute(any(SendMessage.class));
     }
 
     private SurveySession session(SurveyStep step) {

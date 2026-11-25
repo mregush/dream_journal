@@ -2,6 +2,10 @@ package ru.dreamjournal.diary;
 
 public sealed interface SurveyResult {
 
+    default AnsweredQuestion answeredQuestion() {
+        return null;
+    }
+
     record Draft(SurveySession session, String hint, AnsweredQuestion answeredQuestion) implements SurveyResult {
         public Draft(SurveySession session) {
             this(session, null, null);
@@ -15,7 +19,10 @@ public sealed interface SurveyResult {
     record AnsweredQuestion(SurveySession question, SleepAnswers answers) {
     }
 
-    record Saved(SleepEntry entry, boolean justSaved) implements SurveyResult {
+    record Saved(SleepEntry entry, boolean justSaved, AnsweredQuestion answeredQuestion) implements SurveyResult {
+        public Saved(SleepEntry entry, boolean justSaved) {
+            this(entry, justSaved, null);
+        }
     }
 
     record Notice(String text) implements SurveyResult {

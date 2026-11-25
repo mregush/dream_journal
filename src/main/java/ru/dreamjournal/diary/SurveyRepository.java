@@ -14,6 +14,7 @@ import java.util.EnumSet;
 import java.util.Optional;
 import java.util.List;
 import java.util.UUID;
+import java.util.Set;
 import java.util.stream.Collectors;
 
 @Repository
@@ -23,7 +24,8 @@ public class SurveyRepository {
             rs.getLong("telegram_user_id"), rs.getObject("id", UUID.class),
             rs.getObject("entry_date", LocalDate.class), rs.getString("time_zone"),
             SurveyStep.valueOf(rs.getString("step")), rs.getLong("revision"), rs.getBoolean("paused"),
-            rs.getBoolean("return_to_review"), readAnswers(rs), rs.getObject("prompt_message_id", Integer.class));
+            rs.getBoolean("editing"), readAnswers(rs), rs.getObject("prompt_message_id", Integer.class),
+            rs.getBoolean("awaiting_other_text"));
     private static final RowMapper<SleepEntry> ENTRY_MAPPER = (rs, row) -> new SleepEntry(
             rs.getLong("telegram_user_id"), rs.getObject("entry_date", LocalDate.class),
             rs.getString("time_zone"), readAnswers(rs));
@@ -69,25 +71,31 @@ public class SurveyRepository {
     public void saveSession(SurveySession session) {
         withAnswers(jdbc.sql("""
                 INSERT INTO survey_sessions (telegram_user_id, id, entry_date, time_zone, step, revision,
-                    paused, return_to_review, sleep_quality, duration_minutes, duration_range, awakenings, bedtime_states,
-                    bedtime_activities, morning_rest, comment, prompt_message_id)
-                VALUES (:userId, :id, :date, :zone, :step, :revision, :paused, :returnToReview,
-                    :quality, :duration, :durationRange, :awakenings, string_to_array(:states, ','), :activities, :rest, :comment, :promptMessageId)
+                    paused, editing, sleep_quality, duration_minutes, duration_range, awakenings, bedtime_states,
+                    bedtime_activities, morning_rest, comment, prompt_message_id, dreams, activity_choices, awaiting_other_text,
+                    other_bedtime_state)
+                VALUES (:userId, :id, :date, :zone, :step, :revision, :paused, :editing,
+                    :quality, :duration, :durationRange, :awakenings, string_to_array(:states, ','), :activities, :rest,
+                    :comment, :promptMessageId, :dreams, string_to_array(:activityChoices, ','), :awaitingOtherText, :otherState)
                 ON CONFLICT (telegram_user_id) DO UPDATE SET
                     id = EXCLUDED.id, entry_date = EXCLUDED.entry_date, time_zone = EXCLUDED.time_zone,
                     step = EXCLUDED.step, revision = EXCLUDED.revision, paused = EXCLUDED.paused,
-                    return_to_review = EXCLUDED.return_to_review, sleep_quality = EXCLUDED.sleep_quality,
+                    editing = EXCLUDED.editing, sleep_quality = EXCLUDED.sleep_quality,
                     duration_minutes = EXCLUDED.duration_minutes, duration_range = EXCLUDED.duration_range,
                     awakenings = EXCLUDED.awakenings,
                     bedtime_states = EXCLUDED.bedtime_states, bedtime_activities = EXCLUDED.bedtime_activities,
                     morning_rest = EXCLUDED.morning_rest, comment = EXCLUDED.comment,
                     prompt_message_id = EXCLUDED.prompt_message_id,
+                    dreams = EXCLUDED.dreams, activity_choices = EXCLUDED.activity_choices,
+                    awaiting_other_text = EXCLUDED.awaiting_other_text,
+                    other_bedtime_state = EXCLUDED.other_bedtime_state,
                     updated_at = CURRENT_TIMESTAMP
                 """), session.answers())
                 .param("userId", session.userId()).param("id", session.id()).param("date", session.entryDate())
                 .param("zone", session.timeZone()).param("step", session.step().name())
                 .param("revision", session.revision()).param("paused", session.paused())
-                .param("returnToReview", session.returnToReview()).param("promptMessageId", session.promptMessageId()).update();
+                .param("editing", session.editing()).param("promptMessageId", session.promptMessageId())
+                .param("awaitingOtherText", session.awaitingOtherText()).update();
     }
 
     public void recordPrompt(long userId, UUID sessionId, long revision, int messageId) {
@@ -102,16 +110,18 @@ public class SurveyRepository {
         withAnswers(jdbc.sql("""
                 INSERT INTO sleep_entries (telegram_user_id, entry_date, time_zone, questionnaire_version,
                     sleep_quality, duration_minutes, duration_range, awakenings, bedtime_states, bedtime_activities,
-                    morning_rest, comment)
-                VALUES (:userId, :date, :zone, 2, :quality, :duration, :durationRange, :awakenings,
-                    string_to_array(:states, ','), :activities, :rest, :comment)
+                    morning_rest, comment, dreams, activity_choices, other_bedtime_state)
+                VALUES (:userId, :date, :zone, 4, :quality, :duration, :durationRange, :awakenings,
+                    string_to_array(:states, ','), :activities, :rest, :comment, :dreams, string_to_array(:activityChoices, ','), :otherState)
                 ON CONFLICT (telegram_user_id, entry_date) DO UPDATE SET
                     time_zone = EXCLUDED.time_zone, questionnaire_version = EXCLUDED.questionnaire_version,
                     sleep_quality = EXCLUDED.sleep_quality, duration_minutes = EXCLUDED.duration_minutes,
                     duration_range = EXCLUDED.duration_range,
                     awakenings = EXCLUDED.awakenings, bedtime_states = EXCLUDED.bedtime_states,
                     bedtime_activities = EXCLUDED.bedtime_activities, morning_rest = EXCLUDED.morning_rest,
-                    comment = EXCLUDED.comment, updated_at = CURRENT_TIMESTAMP
+                    comment = EXCLUDED.comment, dreams = EXCLUDED.dreams, activity_choices = EXCLUDED.activity_choices,
+                    other_bedtime_state = EXCLUDED.other_bedtime_state,
+                    updated_at = CURRENT_TIMESTAMP
                 """), entry.answers())
                 .param("userId", entry.userId()).param("date", entry.entryDate()).param("zone", entry.timeZone())
                 .update();
@@ -129,17 +139,13 @@ public class SurveyRepository {
                 .param("awakenings", answers.awakenings())
                 .param("states", answers.bedtimeStates().stream().map(Enum::name).collect(Collectors.joining(",")))
                 .param("activities", answers.activities()).param("rest", answers.morningRest())
-                .param("comment", answers.comment());
+                .param("comment", answers.comment()).param("dreams", answers.dreams())
+                .param("activityChoices", answers.activityChoices().stream().map(Enum::name).collect(Collectors.joining(",")))
+                .param("otherState", answers.otherBedtimeState());
     }
 
     private static SleepAnswers readAnswers(ResultSet rs) throws SQLException {
-        var states = EnumSet.noneOf(BedtimeState.class);
-        var array = rs.getArray("bedtime_states");
-        try {
-            Arrays.stream((String[]) array.getArray()).map(BedtimeState::valueOf).forEach(states::add);
-        } finally {
-            array.free();
-        }
+        var states = readChoices(rs, "bedtime_states", BedtimeState.class);
         String range = rs.getString("duration_range");
         Integer minutes = rs.getObject("duration_minutes", Integer.class);
         SleepDuration duration = range != null ? SleepDuration.selected(SleepDurationRange.valueOf(range))
@@ -147,7 +153,19 @@ public class SurveyRepository {
         return new SleepAnswers(rs.getObject("sleep_quality", Integer.class),
                 duration, rs.getObject("awakenings", Integer.class),
                 states, rs.getString("bedtime_activities"), rs.getObject("morning_rest", Integer.class),
-                rs.getString("comment"));
+                rs.getString("comment"), rs.getString("dreams"), readChoices(rs, "activity_choices", BedtimeActivity.class),
+                rs.getString("other_bedtime_state"));
+    }
+
+    private static <E extends Enum<E>> Set<E> readChoices(ResultSet rs, String column, Class<E> type) throws SQLException {
+        var values = EnumSet.noneOf(type);
+        var array = rs.getArray(column);
+        try {
+            Arrays.stream((String[]) array.getArray()).map(value -> Enum.valueOf(type, value)).forEach(values::add);
+        } finally {
+            array.free();
+        }
+        return values;
     }
 
     public record UserSettings(String timeZone, Instant registeredAt) {

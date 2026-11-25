@@ -8,7 +8,8 @@ import java.util.TreeMap;
 public record MonthlyStatistics(DiaryMonth period, int trackedDays, int draftDays, int missingDays,
                                 Double averageQuality, Double averageRest, Double averageAwakenings,
                                 int uninterruptedNights, Map<SleepDurationRange, Integer> durationCounts,
-                                Map<Integer, Integer> legacyDurationCounts, Map<BedtimeState, Integer> stateCounts) {
+                                Map<Integer, Integer> legacyDurationCounts, Map<BedtimeState, Integer> stateCounts,
+                                int otherStateNights) {
 
     public static MonthlyStatistics calculate(DiaryMonth period) {
         int tracked = 0;
@@ -30,6 +31,7 @@ public record MonthlyStatistics(DiaryMonth period, int trackedDays, int draftDay
         int rest = 0;
         int awakenings = 0;
         int uninterrupted = 0;
+        int otherStateNights = 0;
         var durations = new EnumMap<SleepDurationRange, Integer>(SleepDurationRange.class);
         var legacy = new TreeMap<Integer, Integer>();
         var states = new EnumMap<BedtimeState, Integer>(BedtimeState.class);
@@ -47,12 +49,16 @@ public record MonthlyStatistics(DiaryMonth period, int trackedDays, int draftDay
                 legacy.merge(answers.duration().exactMinutes(), 1, Integer::sum);
             }
             answers.bedtimeStates().forEach(state -> states.merge(state, 1, Integer::sum));
+            if (answers.otherBedtimeState() != null && !answers.otherBedtimeState().isBlank()) {
+                otherStateNights++;
+            }
         }
         int count = period.entries().size();
         return new MonthlyStatistics(period, tracked, drafts, Math.max(0, tracked - count - drafts),
                 count == 0 ? null : (double) quality / count,
                 count == 0 ? null : (double) rest / count,
                 count == 0 ? null : (double) awakenings / count, uninterrupted,
-                Collections.unmodifiableMap(durations), Collections.unmodifiableMap(legacy), Collections.unmodifiableMap(states));
+                Collections.unmodifiableMap(durations), Collections.unmodifiableMap(legacy), Collections.unmodifiableMap(states),
+                otherStateNights);
     }
 }

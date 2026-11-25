@@ -133,6 +133,7 @@ public class DiaryView {
                 text.append("\n").append(TelegramHtml.escape(state.label())).append(" — ")
                         .append(TelegramHtml.bold(nightCount(stats.stateCounts().getOrDefault(state, 0))));
             }
+            text.append("\nДругое — ").append(TelegramHtml.bold(nightCount(stats.otherStateNights())));
             text.append("\n<i>Одна ночь может учитываться в нескольких состояниях.</i>");
         }
         text.append("\n\n<i>Дни до регистрации и будущие даты не считаются пропусками.</i>");
