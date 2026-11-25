@@ -22,6 +22,7 @@ public class DiaryView {
     private static final Locale RU = Locale.forLanguageTag("ru-RU");
     private static final DateTimeFormatter MONTH = DateTimeFormatter.ofPattern("LLLL yyyy", RU);
     private static final DateTimeFormatter DAY = DateTimeFormatter.ofPattern("d MMMM", RU);
+    private static final int OTHER_STATES_PER_PAGE = 8;
 
     private final SurveyView surveyView;
 
@@ -33,7 +34,7 @@ public class DiaryView {
         return switch (result) {
             case SurveyResult.Calendar calendar -> calendar(calendar.period());
             case SurveyResult.Day day -> day(day.day());
-            case SurveyResult.Statistics statistics -> statistics(statistics.statistics());
+            case SurveyResult.Statistics statistics -> statistics(statistics.statistics(), statistics.otherStatesPage());
             default -> surveyView.render(result);
         };
     }
@@ -104,8 +105,11 @@ public class DiaryView {
         return screen(text, rows);
     }
 
-    private SurveyView.Screen statistics(MonthlyStatistics stats) {
+    private SurveyView.Screen statistics(MonthlyStatistics stats, int requestedPage) {
         var period = stats.period();
+        var otherStates = stats.otherStates();
+        int pages = (otherStates.size() + OTHER_STATES_PER_PAGE - 1) / OTHER_STATES_PER_PAGE;
+        int page = Math.max(0, Math.min(requestedPage, pages - 1));
         int count = period.entries().size();
         StringBuilder text = new StringBuilder("📊 <b>Статистика месяца</b>\n\n")
                 .append(TelegramHtml.bold(monthName(period.month())))
@@ -130,14 +134,33 @@ public class DiaryView {
             }
             text.append("\n\n<b>Состояние перед сном:</b>");
             for (BedtimeState state : BedtimeState.values()) {
+                int nights = stats.stateCounts().getOrDefault(state, 0);
+                if (nights <= 0) {
+                    continue;
+                }
                 text.append("\n").append(TelegramHtml.escape(state.label())).append(" — ")
-                        .append(TelegramHtml.bold(nightCount(stats.stateCounts().getOrDefault(state, 0))));
+                        .append(TelegramHtml.bold(nightCount(nights)));
             }
-            text.append("\nДругое — ").append(TelegramHtml.bold(nightCount(stats.otherStateNights())));
+            if (!otherStates.isEmpty()) {
+                int start = page * OTHER_STATES_PER_PAGE;
+                var values = otherStates.subList(start, Math.min(start + OTHER_STATES_PER_PAGE, otherStates.size()));
+                text.append("\nДругое: ").append(TelegramHtml.escape(String.join(", ", values)));
+            }
             text.append("\n<i>Одна ночь может учитываться в нескольких состояниях.</i>");
         }
         text.append("\n\n<i>Дни до регистрации и будущие даты не считаются пропусками.</i>");
         var rows = new ArrayList<InlineKeyboardRow>();
+        if (pages > 1) {
+            var navigation = new InlineKeyboardRow();
+            if (page > 0) {
+                navigation.add(button("⬅️", "t:" + period.month() + ":" + (page - 1)));
+            }
+            navigation.add(button("Другое: " + (page + 1) + "/" + pages, "noop"));
+            if (page + 1 < pages) {
+                navigation.add(button("➡️", "t:" + period.month() + ":" + (page + 1)));
+            }
+            rows.add(navigation);
+        }
         rows.add(monthNavigation(period, "t"));
         rows.add(new InlineKeyboardRow(button("Календарь", "c:" + period.month())));
         return screen(text.toString(), rows);

@@ -5,7 +5,11 @@ import java.time.YearMonth;
 import java.time.format.DateTimeParseException;
 import java.util.Optional;
 
-public record DiaryCallback(Action action, LocalDate date) {
+public record DiaryCallback(Action action, LocalDate date, int page) {
+
+    public DiaryCallback(Action action, LocalDate date) {
+        this(action, date, 0);
+    }
 
     public enum Action { CALENDAR, STATISTICS, DAY, ADD, NOOP }
 
@@ -17,6 +21,17 @@ public record DiaryCallback(Action action, LocalDate date) {
             return Optional.empty();
         }
         String[] parts = data.split(":", -1);
+        if (parts.length == 3 && parts[0].equals("t")) {
+            if (!parts[2].matches("0|[1-9][0-9]?")) {
+                return Optional.empty();
+            }
+            try {
+                int page = Integer.parseInt(parts[2]);
+                return month(Action.STATISTICS, parts[1]).map(callback -> new DiaryCallback(callback.action(), callback.date(), page));
+            } catch (DateTimeParseException exception) {
+                return Optional.empty();
+            }
+        }
         if (parts.length != 2) {
             return Optional.empty();
         }

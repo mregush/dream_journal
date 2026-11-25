@@ -34,6 +34,9 @@ public sealed interface SurveyResult {
     record Day(DiaryDay day) implements SurveyResult {
     }
 
-    record Statistics(MonthlyStatistics statistics) implements SurveyResult {
+    record Statistics(MonthlyStatistics statistics, int otherStatesPage) implements SurveyResult {
+        public Statistics(MonthlyStatistics statistics) {
+            this(statistics, 0);
+        }
     }
 }

@@ -286,6 +286,24 @@ class DiaryIntegrationTest {
         return ((SurveyResult.Calendar) result).period();
     }
 
+    @Test
+    void customStatePagesKeepTheSelectedMonthAndOnlyContainTheCurrentUsersSavedValues() {
+        var date = date("2026-11-05");
+        repository.saveEntry(new SleepEntry(42, date, "Europe/Moscow", new SleepAnswers(8,
+                SleepDuration.selected(SleepDurationRange.SEVEN_TO_EIGHT), 0, Set.of(), null, 8, null)
+                .withOtherBedtimeState("Предвкушение")));
+
+        var result = survey.open(42);
+        var draft = repository.findSession(42).orElseThrow();
+        var page = (SurveyResult.Statistics) diary.statistics(42, NOVEMBER, 1);
+
+        assertThat(page.otherStatesPage()).isEqualTo(1);
+        assertThat(page.statistics().period().month()).isEqualTo(NOVEMBER);
+        assertThat(page.statistics().otherStates()).containsExactly("Предвкушение");
+        assertThat(repository.findSession(42)).contains(draft);
+        assertThat(result).isInstanceOf(SurveyResult.Draft.class);
+    }
+
     private MonthlyStatistics stats(SurveyResult result) {
         assertThat(result).isInstanceOf(SurveyResult.Statistics.class);
         return ((SurveyResult.Statistics) result).statistics();

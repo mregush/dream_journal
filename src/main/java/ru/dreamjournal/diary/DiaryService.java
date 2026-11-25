@@ -28,7 +28,13 @@ public class DiaryService {
     }
 
     public SurveyResult statistics(long userId, YearMonth month) {
-        return month(userId, month, true);
+        return statistics(userId, month, 0);
+    }
+
+    public SurveyResult statistics(long userId, YearMonth month, int otherStatesPage) {
+        SurveyResult result = month(userId, month, true);
+        return result instanceof SurveyResult.Statistics stats
+                ? new SurveyResult.Statistics(stats.statistics(), otherStatesPage) : result;
     }
 
     public SurveyResult day(long userId, LocalDate date) {

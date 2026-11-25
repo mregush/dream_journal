@@ -149,7 +149,7 @@ class DiaryViewTest {
     @ParameterizedTest
     @CsvSource({"1, ночь", "2, ночи", "4, ночи", "5, ночей", "11, ночей", "12, ночей", "14, ночей",
             "21, ночь", "22, ночи", "24, ночи", "25, ночей", "31, ночь"})
-    void monthlyCountsUseTheCorrectNightWordIncludingZeroStates(int count, String word) {
+    void monthlyCountsUseTheCorrectNightWordAndHideZeroStates(int count, String word) {
         var month = YearMonth.of(2026, 10);
         var entries = new ArrayList<SleepEntry>();
         var answers = new SleepAnswers(8, SleepDuration.selected(SleepDurationRange.EIGHT_TO_NINE), 0,
@@ -161,7 +161,8 @@ class DiaryViewTest {
         var screen = view.render(new SurveyResult.Statistics(MonthlyStatistics.calculate(period(month, entries, null))));
 
         assertThat(screen.text()).contains("8–9ч — <b>" + count + " " + word + "</b>",
-                "Расслабленное — <b>" + count + " " + word + "</b>", "Стресс — <b>0 ночей</b>");
+                "Расслабленное — <b>" + count + " " + word + "</b>")
+                .doesNotContain("Стресс —", "Другое", "0 ночей");
     }
 
     @Test
@@ -172,7 +173,7 @@ class DiaryViewTest {
     }
 
     @Test
-    void statisticsCountCustomStatesAsOtherNightsAlongsideThePresetStates() {
+    void statisticsListDistinctCustomStatesWithoutCountsAlongsideThePresetStates() {
         var first = entry(today, SleepDuration.selected(SleepDurationRange.SEVEN_TO_EIGHT));
         var second = new SleepEntry(42, today.minusDays(1), "Europe/Moscow",
                 new SleepAnswers(8, SleepDuration.selected(SleepDurationRange.SEVEN_TO_EIGHT), 0,
@@ -180,22 +181,72 @@ class DiaryViewTest {
         var third = new SleepEntry(42, today.minusDays(2), "Europe/Moscow",
                 new SleepAnswers(8, SleepDuration.selected(SleepDurationRange.SEVEN_TO_EIGHT), 0,
                         java.util.Set.of(BedtimeState.ANXIOUS), null, 8, null).withOtherBedtimeState("Вдохновение"));
-        var stats = MonthlyStatistics.calculate(period(YearMonth.from(today), List.of(first, second, third), null));
+        var duplicate = new SleepEntry(42, today.minusDays(3), "Europe/Moscow", second.answers());
+        var stats = MonthlyStatistics.calculate(period(YearMonth.from(today), List.of(first, second, third, duplicate), null));
 
         var text = view.render(new SurveyResult.Statistics(stats)).text();
 
-        assertThat(stats.otherStateNights()).isEqualTo(2);
-        assertThat(text).contains("Другое — <b>2 ночи</b>", "Тревога — <b>2 ночи</b>");
-        assertThat(text).doesNotContain("Предвкушение", "Вдохновение");
+        assertThat(stats.otherStates()).containsExactly("Предвкушение", "Вдохновение");
+        assertThat(text).contains("\nДругое: Предвкушение, Вдохновение", "Тревога — <b>2 ночи</b>");
+        assertThat(text).doesNotContain("Другое —", "Предвкушение —", "Вдохновение —", "\n\nДругое:", "<b>Другое:", "\n• ");
+        assertThat(text.indexOf("Предвкушение")).isEqualTo(text.lastIndexOf("Предвкушение"));
+        var customOnly = MonthlyStatistics.calculate(period(YearMonth.from(today), List.of(second), null));
+        var customText = view.render(new SurveyResult.Statistics(customOnly)).text();
+        assertThat(customText).contains("\nДругое: Предвкушение").doesNotContain("0 ночей", "Другое —");
+        for (BedtimeState state : BedtimeState.values()) {
+            assertThat(customText).doesNotContain(state.label() + " —");
+        }
+    }
+
+    @Test
+    void longCustomStateListsArePagedWithoutLosingTextAndEscapeHtmlOnEveryPage() throws Exception {
+        var month = YearMonth.of(2026, 10);
+        var entries = new ArrayList<SleepEntry>();
+        var expected = new ArrayList<String>();
+        for (int day = 1; day <= 31; day++) {
+            String value = day + ": <b>не разметка</b> & ";
+            value += "&".repeat(200 - value.length());
+            expected.add(value);
+            var original = entry(month.atDay(day), SleepDuration.legacy(day * 45));
+            entries.add(new SleepEntry(42, original.entryDate(), original.timeZone(), original.answers().withOtherBedtimeState(value)));
+        }
+        var stats = MonthlyStatistics.calculate(period(month, entries, null));
+        var actual = new ArrayList<String>();
+        for (int page = 0; page < 4; page++) {
+            var screen = view.render(new SurveyResult.Statistics(stats, page));
+            String visible = javax.xml.parsers.DocumentBuilderFactory.newInstance().newDocumentBuilder()
+                    .parse(new org.xml.sax.InputSource(new java.io.StringReader("<message>" + screen.text() + "</message>")))
+                    .getDocumentElement().getTextContent();
+            assertThat(visible.length()).isLessThanOrEqualTo(4096);
+            assertThat(screen.text()).contains("&lt;b&gt;не разметка&lt;/b&gt; &amp;");
+            actual.addAll(expected.stream().filter(visible::contains).toList());
+            screen.keyboard().validate();
+            assertThat(buttons(screen).stream().map(InlineKeyboardButton::getCallbackData))
+                    .contains("c:2026-10", "t:2026-09", "t:2026-11");
+            if (page > 0) {
+                assertThat(buttons(screen).stream().map(InlineKeyboardButton::getCallbackData)).contains("t:2026-10:" + (page - 1));
+            }
+            if (page < 3) {
+                assertThat(buttons(screen).stream().map(InlineKeyboardButton::getCallbackData)).contains("t:2026-10:" + (page + 1));
+            }
+        }
+        assertThat(actual).containsExactlyElementsOf(expected);
+        assertThat(view.render(new SurveyResult.Statistics(stats, 99)).text())
+                .isEqualTo(view.render(new SurveyResult.Statistics(stats, 3)).text());
+        assertThat(view.render(new SurveyResult.Statistics(stats, -1)).text())
+                .isEqualTo(view.render(new SurveyResult.Statistics(stats, 0)).text());
     }
 
     @Test
     void callbackParserRejectsInvalidDatesAndNonCanonicalPayloads() {
         for (String data : new String[]{"day:2026-02-30", "c:2026-13", "add:0000-01-01", "t:+10000-01",
-                "day:2026-11-01:42", "c:2026-11:extra", "a".repeat(65)}) {
+                "day:2026-11-01:42", "c:2026-11:extra", "t:2026-11:-1", "t:2026-11:01",
+                "t:2026-11:100", "t:2026-11:one", "t:2026-11:1:extra", "t:2026-13:1", "a".repeat(65)}) {
             assertThat(DiaryCallback.parse(data)).isEmpty();
         }
         assertThat(DiaryCallback.parse("day:2024-02-29")).isPresent();
+        assertThat(DiaryCallback.parse("t:2026-11:2").orElseThrow().page()).isEqualTo(2);
+        assertThat(DiaryCallback.parse("t:2026-11").orElseThrow().page()).isZero();
     }
 
     private List<InlineKeyboardButton> buttons(SurveyView.Screen screen) {

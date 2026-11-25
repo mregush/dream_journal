@@ -23,6 +23,7 @@ import ru.dreamjournal.diary.DiaryMonth;
 import ru.dreamjournal.diary.SleepAnswers;
 import ru.dreamjournal.diary.SleepEntry;
 import ru.dreamjournal.diary.BedtimeActivity;
+import ru.dreamjournal.diary.MonthlyStatistics;
 import ru.dreamjournal.diary.SurveyCallback;
 import ru.dreamjournal.diary.SurveyResult;
 import ru.dreamjournal.diary.SurveyService;
@@ -282,6 +283,28 @@ class SurveyTelegramControllerTest {
         verify(client).execute(argThat((BotApiMethod<?> method) -> method instanceof EditMessageText edit
                 && edit.getReplyMarkup().getKeyboard().getFirst().getFirst().getText().equals("✅ Чтение")));
         verify(client, never()).execute(any(SendMessage.class));
+    }
+
+    @Test
+    void customStatePageNavigationEditsStatisticsWithoutTouchingTheSurvey() throws Exception {
+        var month = YearMonth.of(2026, 10);
+        var entries = new java.util.ArrayList<SleepEntry>();
+        for (int day = 1; day <= 9; day++) {
+            entries.add(new SleepEntry(42, month.atDay(day), "Europe/Moscow", new SleepAnswers(8,
+                    ru.dreamjournal.diary.SleepDuration.selected(ru.dreamjournal.diary.SleepDurationRange.SEVEN_TO_EIGHT),
+                    0, java.util.Set.of(), null, 8, null).withOtherBedtimeState("Состояние " + day)));
+        }
+        var stats = MonthlyStatistics.calculate(new DiaryMonth(month, LocalDate.of(2026, 11, 23), month.atDay(1),
+                "Europe/Moscow", entries, null));
+        when(diaryService.statistics(42, month, 1)).thenReturn(new SurveyResult.Statistics(stats, 1));
+
+        controller.callback(42, 42, 10, "query", "t:2026-10:1");
+
+        verify(client).execute(argThat((BotApiMethod<?> method) -> method instanceof EditMessageText edit
+                && edit.getMessageId() == 10 && edit.getText().contains("Другое: Состояние 9")
+                && !edit.getText().contains("Другое: Состояние 1")));
+        verify(client, never()).execute(any(SendMessage.class));
+        verifyNoInteractions(service);
     }
 
     private SurveySession session(SurveyStep step) {

@@ -4,12 +4,18 @@ import java.util.Collections;
 import java.util.EnumMap;
 import java.util.Map;
 import java.util.TreeMap;
+import java.util.List;
 
 public record MonthlyStatistics(DiaryMonth period, int trackedDays, int draftDays, int missingDays,
                                 Double averageQuality, Double averageRest, Double averageAwakenings,
                                 int uninterruptedNights, Map<SleepDurationRange, Integer> durationCounts,
                                 Map<Integer, Integer> legacyDurationCounts, Map<BedtimeState, Integer> stateCounts,
                                 int otherStateNights) {
+
+    public List<String> otherStates() {
+        return period.entries().stream().map(entry -> entry.answers().otherBedtimeState())
+                .filter(value -> value != null && !value.isBlank()).distinct().toList();
+    }
 
     public static MonthlyStatistics calculate(DiaryMonth period) {
         int tracked = 0;

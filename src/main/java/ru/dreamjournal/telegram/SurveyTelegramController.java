@@ -75,7 +75,7 @@ public class SurveyTelegramController {
         SurveyResult result = perform(() -> navigation.isEmpty() ? service.action(userId, data)
                 : switch (navigation.get().action()) {
                     case CALENDAR -> diaryService.calendar(userId, YearMonth.from(navigation.get().date()));
-                    case STATISTICS -> diaryService.statistics(userId, YearMonth.from(navigation.get().date()));
+                    case STATISTICS -> diaryService.statistics(userId, YearMonth.from(navigation.get().date()), navigation.get().page());
                     case DAY -> diaryService.day(userId, navigation.get().date());
                     case ADD -> service.openDate(userId, navigation.get().date());
                     case NOOP -> throw new IllegalStateException("Non-interactive calendar cell");
