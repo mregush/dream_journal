@@ -28,7 +28,7 @@ public class TelegramReminderSender implements ReminderDispatcher.Sender {
     public ReminderService.Outcome send(ReminderService.Delivery delivery) {
         try {
             client.execute(SendMessage.builder().chatId(delivery.chatId()).parseMode("HTML")
-                    .text("— Привет, это я!\n<b>Как тебе сегодня спалось</b>?")
+                    .text("— Доброе утро, это я!\n<b>Как тебе сегодня спалось</b>?")
                     .replyMarkup(InlineKeyboardMarkup.builder().keyboard(List.of(
                             new InlineKeyboardRow(InlineKeyboardButton.builder().text("Сделать запись")
                                     .callbackData("add:" + delivery.date()).build()),

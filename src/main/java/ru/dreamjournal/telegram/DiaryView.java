@@ -119,21 +119,21 @@ public class DiaryView {
                     .append("\nСреднее ощущение отдыха: ").append(TelegramHtml.bold(average(stats.averageRest())))
                     .append("\nСреднее число пробуждений: ").append(TelegramHtml.bold(average(stats.averageAwakenings())))
                     .append("\nНочей без пробуждений: ").append(TelegramHtml.bold(stats.uninterruptedNights()))
-                    .append("\n\n<b>Длительность сна — ночей</b>");
+                    .append("\n\n<b>Длительность сна:</b>");
             stats.durationCounts().forEach((range, nights) -> text.append("\n").append(TelegramHtml.escape(range.hours()))
-                    .append("ч — ").append(TelegramHtml.bold(nights)));
+                    .append("ч — ").append(TelegramHtml.bold(nightCount(nights))));
             if (!stats.legacyDurationCounts().isEmpty()) {
-                text.append("\n\n<b>Прежние записи с точной длительностью — ночей</b>");
+                text.append("\n\n<b>Прежние записи с точной длительностью:</b>");
                 stats.legacyDurationCounts().forEach((minutes, nights) -> text.append("\n")
                         .append(TelegramHtml.escape(SleepDuration.legacy(minutes).label()))
-                        .append(" — ").append(TelegramHtml.bold(nights)));
+                        .append(" — ").append(TelegramHtml.bold(nightCount(nights))));
             }
-            text.append("\n\n<b>Состояние перед сном — ночей</b>");
+            text.append("\n\n<b>Состояние перед сном:</b>");
             for (BedtimeState state : BedtimeState.values()) {
                 text.append("\n").append(TelegramHtml.escape(state.label())).append(" — ")
-                        .append(TelegramHtml.bold(stats.stateCounts().getOrDefault(state, 0)));
+                        .append(TelegramHtml.bold(nightCount(stats.stateCounts().getOrDefault(state, 0))));
             }
-            text.append("\n<i>Можно отметить несколько состояний за одну ночь.</i>");
+            text.append("\n<i>Одна ночь может учитываться в нескольких состояниях.</i>");
         }
         text.append("\n\n<i>Дни до регистрации и будущие даты не считаются пропусками.</i>");
         var rows = new ArrayList<InlineKeyboardRow>();
@@ -164,6 +164,16 @@ public class DiaryView {
 
     private String average(Double value) {
         return value == null ? "—" : String.format(Locale.ROOT, "%.1f", value);
+    }
+
+    private String nightCount(int count) {
+        int lastTwo = count % 100;
+        String word = lastTwo >= 11 && lastTwo <= 14 ? "ночей" : switch (count % 10) {
+            case 1 -> "ночь";
+            case 2, 3, 4 -> "ночи";
+            default -> "ночей";
+        };
+        return count + " " + word;
     }
 
     private InlineKeyboardButton button(String text, String data) {

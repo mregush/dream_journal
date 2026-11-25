@@ -23,6 +23,7 @@ import java.time.YearMonth;
 import java.util.ArrayList;
 import java.util.EnumSet;
 import java.util.List;
+import java.util.Set;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -128,7 +129,10 @@ class DiaryViewTest {
         var stats = view.render(new SurveyResult.Statistics(MonthlyStatistics.calculate(period)));
         assertThat(stats.text()).contains("Среднее качество сна: <b>8.0</b>", "Среднее ощущение отдыха: <b>7.0</b>",
                 "Среднее число пробуждений: <b>0.0</b>",
-                "12+ч — <b>1</b>", "Прежние записи с точной длительностью", "7ч 30 мин — <b>1</b>")
+                "<b>Длительность сна:</b>", "12+ч — <b>1 ночь</b>",
+                "<b>Прежние записи с точной длительностью:</b>", "7ч 30 мин — <b>1 ночь</b>",
+                "<b>Состояние перед сном:</b>", "Расслабленное — <b>31 ночь</b>",
+                "Одна ночь может учитываться в нескольких состояниях.")
                 .doesNotContain("/10");
         var day = new DiaryDay(entries.getFirst().entryDate(), today, "Europe/Moscow", entries.getFirst(), null);
         for (var result : List.of(new SurveyResult.Calendar(period), new SurveyResult.Statistics(MonthlyStatistics.calculate(period)),
@@ -140,6 +144,24 @@ class DiaryViewTest {
             buttons(screen).forEach(button -> assertThat(button.getCallbackData().getBytes(StandardCharsets.UTF_8).length)
                     .isLessThanOrEqualTo(64));
         }
+    }
+
+    @ParameterizedTest
+    @CsvSource({"1, ночь", "2, ночи", "4, ночи", "5, ночей", "11, ночей", "12, ночей", "14, ночей",
+            "21, ночь", "22, ночи", "24, ночи", "25, ночей", "31, ночь"})
+    void monthlyCountsUseTheCorrectNightWordIncludingZeroStates(int count, String word) {
+        var month = YearMonth.of(2026, 10);
+        var entries = new ArrayList<SleepEntry>();
+        var answers = new SleepAnswers(8, SleepDuration.selected(SleepDurationRange.EIGHT_TO_NINE), 0,
+                Set.of(BedtimeState.RELAXED), null, 7, null);
+        for (int day = 1; day <= count; day++) {
+            entries.add(new SleepEntry(42, month.atDay(day), "Europe/Moscow", answers));
+        }
+
+        var screen = view.render(new SurveyResult.Statistics(MonthlyStatistics.calculate(period(month, entries, null))));
+
+        assertThat(screen.text()).contains("8–9ч — <b>" + count + " " + word + "</b>",
+                "Расслабленное — <b>" + count + " " + word + "</b>", "Стресс — <b>0 ночей</b>");
     }
 
     @Test

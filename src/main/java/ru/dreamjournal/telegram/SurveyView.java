@@ -138,15 +138,15 @@ public class SurveyView {
         return switch (step) {
             case QUALITY -> question("Как оцениваешь качество сна?", "1 — очень плохо, 10 — отлично.");
             case DURATION -> TelegramHtml.bold("Отметь, сколько часов длился твой сон:");
-            case AWAKENINGS -> TelegramHtml.bold("Сколько раз просыпался ночью?");
-            case BEDTIME_STATES -> question("В каком состоянии был перед сном?",
+            case AWAKENINGS -> TelegramHtml.bold("Сколько пробуждений было за ночь?");
+            case BEDTIME_STATES -> question("Какое состояние было перед сном?",
                     "Можно выбрать несколько вариантов.\nПовторное нажатие снимает отметку. Затем нажми «Готово».");
-            case ACTIVITIES -> question("Что делал перед сном?",
-                    "Напиши текстом, до 1000 символов, или пропусти вопрос.");
-            case MORNING_REST -> question("Насколько отдохнувшим чувствуешь себя утром?",
-                    "1 — совсем не отдохнул, 10 — полностью отдохнул.");
+            case ACTIVITIES -> question("Как прошёл твой вечер перед сном?",
+                    "Напиши текстом (до 1000 символов) или пропусти вопрос.");
+            case MORNING_REST -> question("Насколько удалось отдохнуть за ночь?",
+                    "1 — совсем не удалось, 10 — полностью.");
             case COMMENT -> question("Хочешь добавить комментарий к записи?",
-                    "Напиши текстом, до 1000 символов, или пропусти вопрос.");
+                    "Напиши текстом (до 1000 символов) или пропусти вопрос.");
             default -> throw new IllegalArgumentException("Expected a questionnaire step");
         };
     }
