@@ -8,6 +8,8 @@ import org.telegram.telegrambots.meta.api.methods.send.SendMessage;
 import org.telegram.telegrambots.meta.api.methods.updatingmessages.EditMessageReplyMarkup;
 import org.telegram.telegrambots.meta.api.methods.updatingmessages.EditMessageText;
 import org.telegram.telegrambots.meta.api.objects.replykeyboard.InlineKeyboardMarkup;
+import org.telegram.telegrambots.meta.api.objects.replykeyboard.buttons.InlineKeyboardButton;
+import org.telegram.telegrambots.meta.api.objects.replykeyboard.buttons.InlineKeyboardRow;
 import org.telegram.telegrambots.meta.exceptions.TelegramApiException;
 import org.telegram.telegrambots.meta.generics.TelegramClient;
 import ru.dreamjournal.diary.SurveyCallback;
@@ -49,9 +51,7 @@ public class SurveyTelegramController {
                 && draft.session().promptMessageId() != null && edit(chatId, draft.session().promptMessageId(), result)) {
             return;
         }
-        if (send(chatId, result)) {
-            completePreviousQuestion(chatId, result, null);
-        }
+        sendAfterAnswer(chatId, result, null);
     }
 
     public void pause(long userId, long chatId) {
@@ -96,10 +96,18 @@ public class SurveyTelegramController {
         if (updateInPlace && edit(chatId, messageId, result)) {
             return;
         }
-        if (send(chatId, result)) {
-            if (!completePreviousQuestion(chatId, result, messageId)) {
-                clearKeyboard(chatId, messageId);
-            }
+        if (result.answeredQuestion() != null) {
+            sendAfterAnswer(chatId, result, messageId);
+        } else if (send(chatId, result)) {
+            clearKeyboard(chatId, messageId);
+        }
+    }
+
+    private void sendAfterAnswer(long chatId, SurveyResult result, Integer callbackMessageId) {
+        // Finish resizing the old message before the next question appears in the chat.
+        completePreviousQuestion(chatId, result, callbackMessageId);
+        if (!send(chatId, result)) {
+            offerContinuation(chatId, result, callbackMessageId);
         }
     }
 
@@ -158,23 +166,49 @@ public class SurveyTelegramController {
         }
     }
 
-    private boolean completePreviousQuestion(long chatId, SurveyResult result, Integer callbackMessageId) {
+    private Integer previousQuestionMessageId(SurveyResult result, Integer callbackMessageId) {
+        return callbackMessageId != null ? callbackMessageId
+                : result.answeredQuestion() == null ? null : result.answeredQuestion().question().promptMessageId();
+    }
+
+    private void completePreviousQuestion(long chatId, SurveyResult result, Integer callbackMessageId) {
         if (result.answeredQuestion() == null) {
-            return false;
+            return;
         }
         var answered = result.answeredQuestion();
-        Integer messageId = callbackMessageId != null ? callbackMessageId : answered.question().promptMessageId();
+        Integer messageId = previousQuestionMessageId(result, callbackMessageId);
         if (messageId == null) {
-            return false;
+            return;
         }
         var screen = surveyView.answeredQuestion(answered);
         try {
             client.execute(EditMessageText.builder().chatId(chatId).messageId(messageId)
                     .text(screen.text()).parseMode("HTML").replyMarkup(screen.keyboard()).build());
-            return true;
         } catch (TelegramApiException exception) {
             log.warn("Answered question update failed ({})", exception.getClass().getSimpleName());
-            return false;
+            clearKeyboard(chatId, messageId);
+        }
+    }
+
+    private void offerContinuation(long chatId, SurveyResult result, Integer callbackMessageId) {
+        Integer messageId = previousQuestionMessageId(result, callbackMessageId);
+        if (result.answeredQuestion() == null || messageId == null) {
+            return;
+        }
+        var answered = result.answeredQuestion();
+        boolean saved = result instanceof SurveyResult.Saved;
+        String label = saved ? "Открыть запись" : "Продолжить";
+        String action = (saved ? "day:" : "add:") + answered.question().entryDate();
+        String hint = saved ? "Запись сохранена, но не удалось показать её. Нажми «Открыть запись» или открой /calendar."
+                : "Не удалось показать следующий шаг. Нажми «Продолжить» или отправь /diary.";
+        var screen = surveyView.answeredQuestion(answered);
+        try {
+            client.execute(EditMessageText.builder().chatId(chatId).messageId(messageId).parseMode("HTML")
+                    .text(screen.text() + "\n\n" + hint)
+                    .replyMarkup(InlineKeyboardMarkup.builder().keyboard(List.of(new InlineKeyboardRow(
+                            InlineKeyboardButton.builder().text(label).callbackData(action).build()))).build()).build());
+        } catch (TelegramApiException exception) {
+            log.warn("Survey continuation could not be shown ({})", exception.getClass().getSimpleName());
         }
     }
 

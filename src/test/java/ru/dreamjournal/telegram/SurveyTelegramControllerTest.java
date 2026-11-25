@@ -4,6 +4,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.EnumSource;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.ArgumentMatchers;
@@ -42,6 +43,7 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
+import static org.mockito.Mockito.inOrder;
 
 @ExtendWith(MockitoExtension.class)
 class SurveyTelegramControllerTest {
@@ -90,7 +92,7 @@ class SurveyTelegramControllerTest {
     }
 
     @Test
-    void nextQuestionIsSentAndPreviousQuestionShowsTheSelectedAnswerWithoutButtons() throws Exception {
+    void previousQuestionShowsTheAnswerBeforeTheNextQuestionIsSent() throws Exception {
         SurveySession session = session(SurveyStep.QUALITY);
         String data = SurveyCallback.data(session, "v8");
         var answers = session.answers().withQuality(8);
@@ -108,6 +110,9 @@ class SurveyTelegramControllerTest {
                 && edit.getText().contains("Как оцениваешь качество сна?") && edit.getText().endsWith("<b>Твой ответ:</b>\n8")
                 && edit.getReplyMarkup().getKeyboard().isEmpty()));
         verify(client, never()).execute(any(EditMessageReplyMarkup.class));
+        var order = inOrder(client);
+        order.verify(client).execute(any(EditMessageText.class));
+        order.verify(client).execute(any(SendMessage.class));
     }
 
     @Test
@@ -129,6 +134,10 @@ class SurveyTelegramControllerTest {
                 && edit.getText().contains("Читал &lt;книгу&gt; &amp; слушал музыку")
                 && edit.getReplyMarkup().getKeyboard().isEmpty()));
         verify(service).recordPrompt(next, 11);
+        var order = inOrder(client, service);
+        order.verify(client).execute(any(EditMessageText.class));
+        order.verify(client).execute(any(SendMessage.class));
+        order.verify(service).recordPrompt(next, 11);
     }
 
     @Test
@@ -146,6 +155,9 @@ class SurveyTelegramControllerTest {
                 && edit.getText().contains("<b>Твой ответ:</b>\nПропущено")));
         verify(client).execute(argThat((BotApiMethod<?> method) -> method instanceof SendMessage message
                 && message.getText().contains("✅ Запись сохранена")));
+        var order = inOrder(client);
+        order.verify(client).execute(any(EditMessageText.class));
+        order.verify(client).execute(any(SendMessage.class));
     }
 
     @Test
@@ -167,13 +179,16 @@ class SurveyTelegramControllerTest {
         verify(client).execute(any(EditMessageReplyMarkup.class));
     }
 
-    @Test
-    void failedDeliveryDoesNotRemoveThePreviousKeyboard() throws Exception {
-        SurveySession session = session(SurveyStep.QUALITY);
-        String data = SurveyCallback.data(session, "v8");
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    void failedDeliveryKeepsTheAcceptedAnswerAndOffersContinuation(boolean saved) throws Exception {
+        SurveySession session = session(saved ? SurveyStep.COMMENT : SurveyStep.QUALITY);
+        String data = SurveyCallback.data(session, saved ? "skip" : "v8");
         var answers = session.answers().withQuality(8);
-        when(service.action(42, data)).thenReturn(new SurveyResult.Draft(session.change(
-                SurveyStep.DURATION, answers, false, false), null, new SurveyResult.AnsweredQuestion(session, answers)));
+        var answered = new SurveyResult.AnsweredQuestion(session, answers);
+        SurveyResult result = saved ? new SurveyResult.Saved(new SleepEntry(42, session.entryDate(), session.timeZone(), answers), true, answered)
+                : new SurveyResult.Draft(session.change(SurveyStep.DURATION, answers, false, false), null, answered);
+        when(service.action(42, data)).thenReturn(result);
         doAnswer(call -> {
             if (call.getArgument(0) instanceof SendMessage) {
                 throw new TelegramApiException("unavailable");
@@ -184,7 +199,36 @@ class SurveyTelegramControllerTest {
         controller.callback(42, 42, 10, "query", data);
 
         verify(client, never()).execute(any(EditMessageReplyMarkup.class));
-        verify(client, never()).execute(any(EditMessageText.class));
+        var order = inOrder(client);
+        order.verify(client).execute(argThat((BotApiMethod<?> method) -> method instanceof EditMessageText edit
+                && edit.getMessageId() == 10 && edit.getReplyMarkup().getKeyboard().isEmpty()));
+        order.verify(client).execute(any(SendMessage.class));
+        order.verify(client).execute(argThat((BotApiMethod<?> method) -> method instanceof EditMessageText edit
+                && edit.getMessageId() == 10 && edit.getText().contains("Твой ответ:")
+                && edit.getReplyMarkup().getKeyboard().getFirst().getFirst().getCallbackData()
+                    .equals((saved ? "day:" : "add:") + session.entryDate())));
+    }
+
+    @Test
+    void failedAnswerEditRemovesOldButtonsBeforeSendingTheNextQuestion() throws Exception {
+        var session = session(SurveyStep.QUALITY);
+        String data = SurveyCallback.data(session, "v8");
+        var answers = session.answers().withQuality(8);
+        when(service.action(42, data)).thenReturn(new SurveyResult.Draft(session.change(
+                SurveyStep.DURATION, answers, false, false), null, new SurveyResult.AnsweredQuestion(session, answers)));
+        doAnswer(call -> {
+            if (call.getArgument(0) instanceof EditMessageText) {
+                throw new TelegramApiException("unavailable");
+            }
+            return null;
+        }).when(client).execute(ArgumentMatchers.<BotApiMethod<?>>any());
+
+        controller.callback(42, 42, 10, "query", data);
+
+        var order = inOrder(client);
+        order.verify(client).execute(any(EditMessageText.class));
+        order.verify(client).execute(any(EditMessageReplyMarkup.class));
+        order.verify(client).execute(any(SendMessage.class));
     }
 
     @Test
